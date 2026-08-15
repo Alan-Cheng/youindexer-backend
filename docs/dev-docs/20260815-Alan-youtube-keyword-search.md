@@ -44,6 +44,45 @@ uv run youtube-search --help
 - `--timeout-ms`：等待 YouTube 頁面的逾時毫秒數，預設為 30,000。
 - `--locale`：瀏覽器語系，預設為 `zh-TW`。
 
+## HTTP API
+
+啟動 FastAPI：
+
+```powershell
+uv run uvicorn app.main:app --reload
+```
+
+匿名搜尋 API 固定使用 headless Chromium：
+
+```http
+GET /api/v1/youtube/search?q=Python%20Playwright&limit=10&locale=zh-TW&timeout_ms=30000
+```
+
+PowerShell 範例：
+
+```powershell
+$params = @{
+    q = "Python Playwright"
+    limit = 10
+    locale = "zh-TW"
+    timeout_ms = 30000
+}
+
+Invoke-RestMethod `
+    -Uri "http://127.0.0.1:8000/api/v1/youtube/search" `
+    -Body $params
+```
+
+API 參數限制：
+
+- `q`：必填，去除前後空白後不可為空，最多 200 個字元。
+- `limit`：選填，預設 10，範圍為 1 至 100。
+- `locale`：選填，預設 `zh-TW`。
+- `timeout_ms`：選填，預設 30,000，範圍為 5,000 至 120,000。
+
+成功時回傳 HTTP 200。參數錯誤時回傳 HTTP 422；Playwright 或 YouTube 搜尋失敗時
+回傳 HTTP 502。
+
 ## Python 呼叫方式
 
 ### Celery worker
