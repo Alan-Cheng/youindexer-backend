@@ -11,3 +11,13 @@ dependencies = [
     "redis>=8.1.0",
     "uvicorn[standard]>=0.52.3",
 ]
+
+[dependency-groups]
+dev = [
+    "commitizen>=4.17.0",
+    "pre-commit>=4.6.2",
+]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "pep621"
