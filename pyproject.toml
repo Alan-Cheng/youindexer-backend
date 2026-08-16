@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 youtube-search = "app.youtube.cli:main"
+youtube-suggestions = "app.youtube.suggestions_cli:main"
 
 [build-system]
 requires = ["setuptools>=80"]
