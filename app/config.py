@@ -1,6 +1,13 @@
 import os
 
+from dotenv import load_dotenv
 from pydantic import BaseModel
+
+
+# Docker Compose reads .env for service interpolation, but local Python commands do
+# not. Load it here so FastAPI, Celery, and Alembic share the same local settings.
+# Existing process environment variables still take precedence.
+load_dotenv()
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
