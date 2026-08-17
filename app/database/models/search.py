@@ -72,7 +72,9 @@ class SearchQueryResult(Base):
     video: Mapped[YouTubeVideo] = relationship()
 
     __table_args__ = (
-        UniqueConstraint("search_query_id", "position", name="uq_search_result_position"),
+        UniqueConstraint(
+            "search_query_id", "position", name="uq_search_result_position"
+        ),
         CheckConstraint("position >= 0"),
         Index("ix_search_query_results_video_id", "video_id"),
         {"comment": "每次搜尋所包含的影片及顯示順位"},

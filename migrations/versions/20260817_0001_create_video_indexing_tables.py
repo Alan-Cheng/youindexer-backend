@@ -7,8 +7,8 @@ Create Date: 2026-08-17
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision: str = "20260817_0001"
 down_revision: str | Sequence[str] | None = None
@@ -113,9 +113,7 @@ def _add_database_comments() -> None:
         op.execute(f"COMMENT ON TABLE {table_name} IS '{comment}'")
     for table_name, columns in COLUMN_COMMENTS.items():
         for column_name, comment in columns.items():
-            op.execute(
-                f"COMMENT ON COLUMN {table_name}.{column_name} IS '{comment}'"
-            )
+            op.execute(f"COMMENT ON COLUMN {table_name}.{column_name} IS '{comment}'")
 
 
 def upgrade() -> None:
@@ -135,10 +133,30 @@ def upgrade() -> None:
         sa.Column("view_count_text", sa.String(128)),
         sa.Column("view_count", sa.BigInteger()),
         sa.Column("description", sa.Text()),
-        sa.Column("first_discovered_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("last_seen_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "first_discovered_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "last_seen_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.CheckConstraint("duration_seconds IS NULL OR duration_seconds >= 0"),
         sa.CheckConstraint("view_count IS NULL OR view_count >= 0"),
         sa.PrimaryKeyConstraint("id"),
@@ -151,12 +169,21 @@ def upgrade() -> None:
         sa.Column("locale", sa.String(20), nullable=False),
         sa.Column("requested_limit", sa.Integer(), nullable=False),
         sa.Column("result_count", sa.Integer(), nullable=False),
-        sa.Column("searched_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "searched_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.CheckConstraint("requested_limit > 0"),
         sa.CheckConstraint("result_count >= 0"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_search_queries_query_searched_at", "search_queries", ["query", "searched_at"])
+    op.create_index(
+        "ix_search_queries_query_searched_at",
+        "search_queries",
+        ["query", "searched_at"],
+    )
     op.create_table(
         "transcripts",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -172,16 +199,31 @@ def upgrade() -> None:
         sa.Column("last_error", sa.Text()),
         sa.Column("fetched_at", sa.DateTime(timezone=True)),
         sa.Column("stored_at", sa.DateTime(timezone=True)),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.CheckConstraint("status IN ('pending','running','stored','unavailable','failed')", name="ck_transcripts_status"),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.CheckConstraint(
+            "status IN ('pending','running','stored','unavailable','failed')",
+            name="ck_transcripts_status",
+        ),
         sa.CheckConstraint("segment_count IS NULL OR segment_count >= 0"),
         sa.CheckConstraint("attempt_count >= 0"),
         sa.ForeignKeyConstraint(
             ["video_id"], ["youtube_videos.id"], ondelete="CASCADE"
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("video_id", "language", name="uq_transcripts_video_language"),
+        sa.UniqueConstraint(
+            "video_id", "language", name="uq_transcripts_video_language"
+        ),
     )
     op.create_index("ix_transcripts_status", "transcripts", ["status"])
     op.create_table(
@@ -190,14 +232,20 @@ def upgrade() -> None:
         sa.Column("video_id", sa.BigInteger(), nullable=False),
         sa.Column("position", sa.Integer(), nullable=False),
         sa.CheckConstraint("position >= 0"),
-        sa.ForeignKeyConstraint(["search_query_id"], ["search_queries.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["search_query_id"], ["search_queries.id"], ondelete="CASCADE"
+        ),
         sa.ForeignKeyConstraint(
             ["video_id"], ["youtube_videos.id"], ondelete="CASCADE"
         ),
         sa.PrimaryKeyConstraint("search_query_id", "video_id"),
-        sa.UniqueConstraint("search_query_id", "position", name="uq_search_result_position"),
+        sa.UniqueConstraint(
+            "search_query_id", "position", name="uq_search_result_position"
+        ),
     )
-    op.create_index("ix_search_query_results_video_id", "search_query_results", ["video_id"])
+    op.create_index(
+        "ix_search_query_results_video_id", "search_query_results", ["video_id"]
+    )
     op.create_table(
         "search_index_jobs",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
@@ -210,14 +258,31 @@ def upgrade() -> None:
         sa.Column("last_error", sa.Text()),
         sa.Column("started_at", sa.DateTime(timezone=True)),
         sa.Column("indexed_at", sa.DateTime(timezone=True)),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.CheckConstraint("status IN ('pending','queued','running','indexed','failed')", name="ck_search_index_jobs_status"),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.CheckConstraint(
+            "status IN ('pending','queued','running','indexed','failed')",
+            name="ck_search_index_jobs_status",
+        ),
         sa.CheckConstraint("chunk_count IS NULL OR chunk_count >= 0"),
         sa.CheckConstraint("attempt_count >= 0"),
-        sa.ForeignKeyConstraint(["transcript_id"], ["transcripts.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["transcript_id"], ["transcripts.id"], ondelete="CASCADE"
+        ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("transcript_id", "index_alias", name="uq_search_index_job_target"),
+        sa.UniqueConstraint(
+            "transcript_id", "index_alias", name="uq_search_index_job_target"
+        ),
     )
     op.create_index("ix_search_index_jobs_status", "search_index_jobs", ["status"])
     op.create_table(
@@ -230,17 +295,37 @@ def upgrade() -> None:
         sa.Column("payload", sa.JSON(), nullable=False),
         sa.Column("status", sa.String(32), nullable=False),
         sa.Column("attempt_count", sa.Integer(), nullable=False),
-        sa.Column("available_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "available_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.Column("published_at", sa.DateTime(timezone=True)),
         sa.Column("last_error", sa.Text()),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.CheckConstraint("status IN ('pending','publishing','published','failed')", name="ck_outbox_events_status"),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.CheckConstraint(
+            "status IN ('pending','publishing','published','failed')",
+            name="ck_outbox_events_status",
+        ),
         sa.CheckConstraint("attempt_count >= 0"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("deduplication_key"),
     )
-    op.create_index("ix_outbox_events_dispatch", "outbox_events", ["status", "available_at"])
+    op.create_index(
+        "ix_outbox_events_dispatch", "outbox_events", ["status", "available_at"]
+    )
     _add_database_comments()
 
 

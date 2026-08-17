@@ -4,13 +4,13 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     CheckConstraint,
     DateTime,
     Identity,
     Index,
     Integer,
-    JSON,
     String,
     Text,
     func,

@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-youindexer}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-youindexer}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -35,6 +35,7 @@ services:
     cpus: ${TRANSCRIPTION_WORKER_CPUS:-0.5}
     mem_limit: ${TRANSCRIPTION_WORKER_MEMORY_LIMIT:-512m}
     environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-youindexer}:${POSTGRES_PASSWORD:-youindexer}@postgres:5432/${POSTGRES_DB:-youindexer}
       REDIS_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       MINIO_ENDPOINT: minio:9000
@@ -43,9 +44,54 @@ services:
       MINIO_SECURE: "false"
       MINIO_BUCKET: ${MINIO_BUCKET:-youindexer}
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+    restart: unless-stopped
+
+  index-worker:
+    build:
+      context: .
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "worker", "--queues=indexing,outbox", "--loglevel=INFO", "--concurrency=2"]
+    cpus: ${INDEX_WORKER_CPUS:-0.5}
+    mem_limit: ${INDEX_WORKER_MEMORY_LIMIT:-512m}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-youindexer}:${POSTGRES_PASSWORD:-youindexer}@postgres:5432/${POSTGRES_DB:-youindexer}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_SECURE: "false"
+      MINIO_BUCKET: ${MINIO_BUCKET:-youindexer}
+      OPENSEARCH_URL: http://opensearch:9200
+      OPENSEARCH_SUBTITLE_INDEX: ${OPENSEARCH_SUBTITLE_INDEX:-subtitle-segments-v1}
+      OPENSEARCH_SUBTITLE_ALIAS: ${OPENSEARCH_SUBTITLE_ALIAS:-subtitle-segments}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  celery-beat:
+    build:
+      context: .
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    cpus: ${CELERY_BEAT_CPUS:-0.25}
+    mem_limit: ${CELERY_BEAT_MEMORY_LIMIT:-256m}
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
         condition: service_healthy
     restart: unless-stopped
 

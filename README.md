@@ -101,6 +101,36 @@ youindexer/transcripts/{video_id}/en.json
 
 沒有任何可用字幕時，任務會正常完成並回傳 `subtitle_unavailable`，不會重試或執行 STT。若 YouTube 要求登入，可在 `.env` 設定 Netscape 格式的 `YOUTUBE_COOKIES_FILE`；此路徑還需額外映射到 Worker container。
 
+## YouTube 字幕索引流程
+
+YouTube 搜尋 API 會將搜尋紀錄、結果順位與影片 metadata 寫入 PostgreSQL，但不會自動處理所有搜尋結果。使用者選定影片後再提出索引請求：
+
+```http
+POST /api/v1/youtube/videos/{video_id}/index
+```
+
+相同影片與語言只會建立一份 transcript。處理進度可透過以下 API 查詢：
+
+```http
+GET /api/v1/youtube/videos/{video_id}/index
+```
+
+字幕成功寫入 MinIO 後，Worker 會在同一個 PostgreSQL transaction 建立 `search_index_jobs` 與 `outbox_events`。Celery Beat 每五秒觸發 outbox dispatcher；Redis 暫時無法接收任務時，事件仍保留在 PostgreSQL，恢復後會再次發布。
+
+`index-worker` 從 MinIO 讀取完整字幕 JSON，並將每個字幕 segment 分別寫入 OpenSearch。搜尋結果因此可以回傳該段字幕的 `start_ms` 與 `end_ms`：
+
+```http
+GET /api/v1/youtube/subtitles/search?q=OpenSearch&language=zh-TW
+```
+
+OpenSearch 實體 index 預設為 `subtitle-segments-v1`，API 與 Worker 透過 `subtitle-segments` alias 存取，方便未來修改 analyzer 後重建新版本索引。
+
+資料庫 schema 由 Alembic 管理。啟動服務後執行：
+
+```bash
+uv run alembic upgrade head
+```
+
 當 FastAPI、PostgreSQL 與 Redis 都正常時，health API 會回傳 HTTP 200：
 
 ```json

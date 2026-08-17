@@ -14,7 +14,7 @@ from app.config import Settings, settings
 
 
 class SubtitleStorageError(RuntimeError):
-    """Raised when a subtitle object cannot be persisted."""
+    """Raised when a subtitle object cannot be read or persisted."""
 
 
 class MinioSubtitleStorage:
@@ -67,3 +67,28 @@ class MinioSubtitleStorage:
             raise SubtitleStorageError(
                 f"failed to store subtitle object {object_name}: {exc}"
             ) from exc
+
+    def get_json(self, object_name: str) -> dict[str, Any]:
+        response = None
+        try:
+            response = self.client.get_object(self.bucket, object_name)
+            document = json.loads(response.read().decode("utf-8"))
+        except (
+            MinioException,
+            HTTPError,
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise SubtitleStorageError(
+                f"failed to read subtitle object {object_name}: {exc}"
+            ) from exc
+        finally:
+            if response is not None:
+                response.close()
+                response.release_conn()
+        if not isinstance(document, dict):
+            raise SubtitleStorageError(
+                f"subtitle object {object_name} must contain a JSON object"
+            )
+        return document

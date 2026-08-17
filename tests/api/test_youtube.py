@@ -1,9 +1,30 @@
-from fastapi.testclient import TestClient
+import asyncio
+
+import httpx
 
 from app.main import app
 from app.youtube import YouTubeSearchError, YouTubeSearchResult, YouTubeSuggestionError
 
-client = TestClient(app)
+
+class _ASGIClient:
+    """Synchronous facade avoiding Starlette TestClient's Python 3.14 deadlock."""
+
+    def get(self, path: str, *, params: dict | None = None) -> httpx.Response:
+        async def request() -> httpx.Response:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                return await client.get(path, params=params)
+
+        return asyncio.run(request())
+
+
+client = _ASGIClient()
+
+
+def _ignore_search_persistence(*args, **kwargs) -> None:
+    return None
 
 
 def test_youtube_suggestions_uses_headless_browser(monkeypatch) -> None:
@@ -13,9 +34,7 @@ def test_youtube_suggestions_uses_headless_browser(monkeypatch) -> None:
         received.update(query=query, limit=limit, **kwargs)
         return ["python tutorial", "python tutorial 中文"]
 
-    monkeypatch.setattr(
-        "app.api.v1.youtube.get_youtube_suggestions", fake_suggestions
-    )
+    monkeypatch.setattr("app.api.v1.youtube.get_youtube_suggestions", fake_suggestions)
     response = client.get(
         "/api/v1/youtube/suggestions",
         params={"q": " python ", "limit": 5, "locale": "en-US", "timeout_ms": 45000},
@@ -45,12 +64,8 @@ def test_youtube_suggestions_maps_failure_to_bad_gateway(monkeypatch) -> None:
     def fake_suggestions(*args, **kwargs):
         raise YouTubeSuggestionError("YouTube suggestions unavailable")
 
-    monkeypatch.setattr(
-        "app.api.v1.youtube.get_youtube_suggestions", fake_suggestions
-    )
-    response = client.get(
-        "/api/v1/youtube/suggestions", params={"q": "python"}
-    )
+    monkeypatch.setattr("app.api.v1.youtube.get_youtube_suggestions", fake_suggestions)
+    response = client.get("/api/v1/youtube/suggestions", params={"q": "python"})
 
     assert response.status_code == 502
     assert response.json() == {"detail": "YouTube suggestions unavailable"}
@@ -79,6 +94,7 @@ def test_youtube_search_uses_headless_browser(monkeypatch) -> None:
         return [sample_result()]
 
     monkeypatch.setattr("app.api.v1.youtube.search_youtube", fake_search)
+    monkeypatch.setattr("app.api.v1.youtube._save_search", _ignore_search_persistence)
     response = client.get(
         "/api/v1/youtube/search",
         params={

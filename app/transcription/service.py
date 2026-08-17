@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
@@ -21,9 +23,12 @@ class SubtitleStorage(Protocol):
 @dataclass(frozen=True, slots=True)
 class StoredSubtitle:
     language: str
+    source_language: str
     source: str
     object_name: str
     segment_count: int
+    content_hash: str
+    fetched_at: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,13 +68,22 @@ def process_youtube_subtitles(
     stored: list[StoredSubtitle] = []
     for document in fetch_result.documents:
         object_name = f"transcripts/{document.video_id}/{document.language}.json"
-        storage.put_json(object_name, document.as_dict())
+        document_dict = document.as_dict()
+        content_hash = hashlib.sha256(
+            json.dumps(
+                document_dict, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        storage.put_json(object_name, document_dict)
         stored.append(
             StoredSubtitle(
                 language=document.language,
+                source_language=document.source_language,
                 source=document.source,
                 object_name=object_name,
                 segment_count=len(document.segments),
+                content_hash=content_hash,
+                fetched_at=document.fetched_at,
             )
         )
 

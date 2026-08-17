@@ -16,9 +16,18 @@ celery_app.conf.update(
     result_serializer="json",
     task_default_queue="transcription",
     task_routes={
-        "app.worker.tasks.store_youtube_subtitles": {"queue": "transcription"}
+        "app.worker.tasks.store_youtube_subtitles": {"queue": "transcription"},
+        "app.worker.tasks.index_subtitle": {"queue": "indexing"},
+        "app.worker.tasks.dispatch_outbox_events": {"queue": "outbox"},
     },
     task_serializer="json",
     timezone="UTC",
     worker_prefetch_multiplier=1,
+    beat_schedule={
+        "dispatch-pending-outbox-events": {
+            "task": "app.worker.tasks.dispatch_outbox_events",
+            "schedule": 5.0,
+            "options": {"queue": "outbox"},
+        }
+    },
 )

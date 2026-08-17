@@ -3,7 +3,6 @@ import os
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-
 # Docker Compose reads .env for service interpolation, but local Python commands do
 # not. Load it here so FastAPI, Celery, and Alembic share the same local settings.
 # Existing process environment variables still take precedence.
@@ -20,7 +19,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 class Settings(BaseModel):
     database_url: str = os.getenv(
         "DATABASE_URL",
-        "postgresql://youindexer:youindexer@localhost:5432/youindexer",
+        "postgresql://youindexer:youindexer@localhost:5433/youindexer",
     )
     redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     celery_result_backend: str = os.getenv(
@@ -32,6 +31,13 @@ class Settings(BaseModel):
     minio_secure: bool = _env_bool("MINIO_SECURE")
     minio_bucket: str = os.getenv("MINIO_BUCKET", "youindexer")
     youtube_cookies_file: str | None = os.getenv("YOUTUBE_COOKIES_FILE")
+    opensearch_url: str = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
+    opensearch_subtitle_index: str = os.getenv(
+        "OPENSEARCH_SUBTITLE_INDEX", "subtitle-segments-v1"
+    )
+    opensearch_subtitle_alias: str = os.getenv(
+        "OPENSEARCH_SUBTITLE_ALIAS", "subtitle-segments"
+    )
 
 
 settings = Settings()
