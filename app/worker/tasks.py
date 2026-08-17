@@ -1,5 +1,7 @@
 """Celery tasks for transcription, outbox dispatch, and subtitle indexing."""
 
+import random
+
 from app.database.session import SessionLocal
 from app.indexing import OpenSearchSubtitleIndexer
 from app.indexing.repository import (
@@ -9,6 +11,7 @@ from app.indexing.repository import (
 )
 from app.transcription.service import process_youtube_subtitles
 from app.transcription.storage import MinioSubtitleStorage
+from app.transcription.youtube import SUPPORTED_LANGUAGES, YouTubeRateLimitError
 from app.worker.celery_app import celery_app
 from app.worker.outbox import dispatch_pending_events
 from app.youtube.repository import (
@@ -23,16 +26,30 @@ from app.youtube.repository import (
     name="app.worker.tasks.store_youtube_subtitles",
     queue="transcription",
     acks_late=True,
-    max_retries=3,
+    max_retries=5,
+    rate_limit="6/m",
     ignore_result=True,
 )
-def store_youtube_subtitles(self, video_url: str, video_id: int | None = None) -> dict:
+def store_youtube_subtitles(
+    self,
+    video_url: str,
+    video_id: int | None = None,
+    language: str | None = None,
+) -> dict:
     """Fetch zh-TW/English YouTube subtitles and store normalized JSON in MinIO."""
+    languages = (language,) if language else SUPPORTED_LANGUAGES
     try:
         if video_id is not None:
             with SessionLocal() as session:
-                mark_transcription_running(session, video_id)
-        result = process_youtube_subtitles(video_url)
+                languages = mark_transcription_running(
+                    session,
+                    video_id,
+                    languages,
+                    include_running=self.request.retries > 0,
+                )
+            if not languages:
+                return {"status": "cached", "video_url": video_url}
+        result = process_youtube_subtitles(video_url, languages=languages)
         if video_id is not None:
             with SessionLocal() as session:
                 record_transcription_result(session, video_id, result)
@@ -41,9 +58,11 @@ def store_youtube_subtitles(self, video_url: str, video_id: int | None = None) -
         retrying = self.request.retries < self.max_retries
         if video_id is not None and not retrying:
             with SessionLocal() as session:
-                mark_transcription_failed(session, video_id, str(exc))
+                mark_transcription_failed(session, video_id, languages, str(exc))
         if retrying:
-            raise self.retry(exc=exc, countdown=2**self.request.retries) from exc
+            base_delay = 60 if isinstance(exc, YouTubeRateLimitError) else 10
+            countdown = base_delay * (2**self.request.retries) + random.randint(0, 15)
+            raise self.retry(exc=exc, countdown=countdown) from exc
         raise
 
 

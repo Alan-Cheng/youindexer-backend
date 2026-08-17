@@ -1,6 +1,10 @@
 from io import BytesIO
 
+import pytest
+from yt_dlp.utils import DownloadError
+
 from app.transcription.youtube import (
+    YouTubeRateLimitError,
     YouTubeSubtitleFetcher,
     parse_json3_segments,
     select_subtitle_track,
@@ -103,7 +107,10 @@ def test_fetcher_returns_documents_and_unavailable_languages() -> None:
     }
     payload = b'{"events":[{"tStartMs":10,"dDurationMs":20,"segs":[{"utf8":"text"}]}]}'
 
+    captured_options: dict = {}
+
     def factory(options: dict) -> _FakeDownloader:
+        captured_options.update(options)
         return _FakeDownloader(
             options,
             info,
@@ -113,14 +120,18 @@ def test_fetcher_returns_documents_and_unavailable_languages() -> None:
             },
         )
 
-    result = YouTubeSubtitleFetcher(youtube_dl_factory=factory).fetch(
-        "https://www.youtube.com/watch?v=video123"
-    )
+    result = YouTubeSubtitleFetcher(
+        youtube_dl_factory=factory, sleep=lambda _seconds: None
+    ).fetch("https://www.youtube.com/watch?v=video123")
 
     assert result.video_id == "video123"
     assert [document.language for document in result.documents] == ["zh-TW", "en"]
     assert result.unavailable_languages == ()
     assert result.documents[0].segments[0].text == "text"
+    assert captured_options["skip_download"] is True
+    assert 1 <= captured_options["sleep_interval_requests"] <= 2
+    assert 2 <= captured_options["sleep_interval_subtitles"] <= 5
+    assert captured_options["concurrent_fragment_downloads"] == 1
 
 
 def test_fetcher_treats_no_tracks_as_successful_unavailable_result() -> None:
@@ -135,9 +146,23 @@ def test_fetcher_treats_no_tracks_as_successful_unavailable_result() -> None:
     def factory(options: dict) -> _FakeDownloader:
         return _FakeDownloader(options, info, {})
 
-    result = YouTubeSubtitleFetcher(youtube_dl_factory=factory).fetch(
-        "https://www.youtube.com/watch?v=video123"
-    )
+    result = YouTubeSubtitleFetcher(
+        youtube_dl_factory=factory, sleep=lambda _seconds: None
+    ).fetch("https://www.youtube.com/watch?v=video123")
 
     assert result.documents == ()
     assert result.unavailable_languages == ("zh-TW", "en")
+
+
+def test_fetcher_classifies_http_429_for_long_backoff() -> None:
+    class RateLimitedDownloader(_FakeDownloader):
+        def extract_info(self, _url: str, *, download: bool) -> dict:
+            raise DownloadError("HTTP Error 429: Too Many Requests")
+
+    def factory(options: dict) -> _FakeDownloader:
+        return RateLimitedDownloader(options, {}, {})
+
+    with pytest.raises(YouTubeRateLimitError):
+        YouTubeSubtitleFetcher(
+            youtube_dl_factory=factory, sleep=lambda _seconds: None
+        ).fetch("https://www.youtube.com/watch?v=video123", ("en",))

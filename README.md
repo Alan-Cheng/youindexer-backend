@@ -84,6 +84,8 @@ OpenSearch 與 OpenSearch Dashboards 為單節點本地開發設定，已停用�
 
 `transcription-worker` 會從 Celery `transcription` queue 取得任務，只擷取繁體中文（`zh-TW` / `zh-Hant`）與英文字幕。它會優先使用影片作者提供的字幕，其次使用 YouTube 自動字幕或翻譯軌，不會下載影片。
 
+每個語言使用獨立任務，Worker concurrency 預設為 1，並限制為每分鐘最多啟動 6 個字幕任務。yt-dlp 設定 `skip_download`，資料擷取請求間隔隨機 1–2 秒，每次字幕下載前隨機等待 2–5 秒。成功寫入 MinIO 的字幕會以 PostgreSQL `transcripts.status=stored` 作為永久 cache；後續只在該語言尚未成功或失敗重試時再次存取 YouTube。HTTP 429 使用分鐘級 exponential backoff，而非立即重試。
+
 可用以下指令發送單筆測試任務：
 
 ```bash

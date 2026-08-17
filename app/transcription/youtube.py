@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import random
+import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -22,6 +24,10 @@ _LANGUAGE_ALIASES = {
 
 class YouTubeSubtitleError(RuntimeError):
     """Raised when YouTube metadata or subtitle content cannot be retrieved."""
+
+
+class YouTubeRateLimitError(YouTubeSubtitleError):
+    """Raised when YouTube rejects subtitle requests with HTTP 429."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,9 +189,11 @@ class YouTubeSubtitleFetcher:
         *,
         cookies_file: str | None = None,
         youtube_dl_factory: Callable[[dict[str, Any]], YoutubeDL] = YoutubeDL,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.cookies_file = cookies_file
         self.youtube_dl_factory = youtube_dl_factory
+        self.sleep = sleep
 
     def fetch(
         self,
@@ -204,6 +212,9 @@ class YouTubeSubtitleFetcher:
             "noplaylist": True,
             "socket_timeout": 30,
             "retries": 2,
+            "sleep_interval_requests": random.uniform(1, 2),
+            "sleep_interval_subtitles": random.uniform(2, 5),
+            "concurrent_fragment_downloads": 1,
         }
         if self.cookies_file:
             options["cookiefile"] = self.cookies_file
@@ -228,6 +239,7 @@ class YouTubeSubtitleFetcher:
                     if not track:
                         unavailable.append(language)
                         continue
+                    self.sleep(options["sleep_interval_subtitles"])
                     with downloader.urlopen(track.url) as response:
                         segments = parse_json3_segments(response.read())
                     if not segments:
@@ -254,9 +266,10 @@ class YouTubeSubtitleFetcher:
             ValueError,
             json.JSONDecodeError,
         ) as exc:
-            raise YouTubeSubtitleError(
-                f"failed to retrieve YouTube subtitles: {exc}"
-            ) from exc
+            message = f"failed to retrieve YouTube subtitles: {exc}"
+            if "429" in str(exc) or "Too Many Requests" in str(exc):
+                raise YouTubeRateLimitError(message) from exc
+            raise YouTubeSubtitleError(message) from exc
 
         return SubtitleFetchResult(
             video_id=video_id,

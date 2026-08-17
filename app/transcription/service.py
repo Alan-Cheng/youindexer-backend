@@ -55,6 +55,7 @@ def _status(fetch_result: SubtitleFetchResult) -> str:
 def process_youtube_subtitles(
     video_url: str,
     *,
+    languages: tuple[str, ...] = SUPPORTED_LANGUAGES,
     fetcher: YouTubeSubtitleFetcher | None = None,
     storage: SubtitleStorage | None = None,
     config: Settings = settings,
@@ -63,7 +64,7 @@ def process_youtube_subtitles(
         cookies_file=config.youtube_cookies_file
     )
     storage = storage or MinioSubtitleStorage.from_settings(config)
-    fetch_result = fetcher.fetch(video_url, SUPPORTED_LANGUAGES)
+    fetch_result = fetcher.fetch(video_url, languages)
 
     stored: list[StoredSubtitle] = []
     for document in fetch_result.documents:

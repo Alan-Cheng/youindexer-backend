@@ -125,7 +125,7 @@ def request_video_indexing(
             select(Transcript).where(Transcript.video_id == video.id)
         )
     }
-    needs_transcription = False
+    languages_to_fetch: list[str] = []
     for language in SUPPORTED_LANGUAGES:
         transcript = transcripts.get(language)
         if transcript is None:
@@ -134,21 +134,60 @@ def request_video_indexing(
             )
             session.add(transcript)
             transcripts[language] = transcript
-            needs_transcription = True
+            languages_to_fetch.append(language)
         elif transcript.status == "failed":
             transcript.status = "pending"
             transcript.last_error = None
-            needs_transcription = True
+            languages_to_fetch.append(language)
 
-    if needs_transcription:
-        request_id = uuid4().hex
+        if transcript.status == "stored" and transcript.content_hash:
+            job = session.scalar(
+                select(SearchIndexJob)
+                .where(
+                    SearchIndexJob.transcript_id == transcript.id,
+                    SearchIndexJob.index_alias == settings.opensearch_subtitle_alias,
+                )
+                .with_for_update()
+            )
+            needs_indexing = job is None
+            if job is None:
+                job = SearchIndexJob(
+                    transcript_id=transcript.id,
+                    index_alias=settings.opensearch_subtitle_alias,
+                    status="pending",
+                )
+                session.add(job)
+                session.flush()
+            if job.status == "failed":
+                job.status = "pending"
+                job.last_error = None
+                needs_indexing = True
+            if needs_indexing:
+                session.add(
+                    OutboxEvent(
+                        event_type="subtitle.index.requested",
+                        aggregate_type="search_index_job",
+                        aggregate_id=str(job.id),
+                        deduplication_key=(f"subtitle-reindex:{job.id}:{uuid4().hex}"),
+                        payload={"index_job_id": job.id},
+                        status="pending",
+                    )
+                )
+
+    for language in languages_to_fetch:
         session.add(
             OutboxEvent(
                 event_type="youtube.transcription.requested",
-                aggregate_type="youtube_video",
-                aggregate_id=str(video.id),
-                deduplication_key=f"youtube-transcription:{video.id}:{request_id}",
-                payload={"video_id": video.id, "video_url": video.canonical_url},
+                aggregate_type="transcript",
+                aggregate_id=f"{video.id}:{language}",
+                deduplication_key=(
+                    f"youtube-transcription:{video.id}:{language}:{uuid4().hex}"
+                ),
+                payload={
+                    "video_id": video.id,
+                    "video_url": video.canonical_url,
+                    "language": language,
+                },
                 status="pending",
             )
         )
@@ -156,24 +195,45 @@ def request_video_indexing(
     return get_video_index_state(session, youtube_video_id)
 
 
-def mark_transcription_running(session: Session, video_id: int) -> None:
+def mark_transcription_running(
+    session: Session,
+    video_id: int,
+    requested_languages: tuple[str, ...],
+    *,
+    include_running: bool = False,
+) -> tuple[str, ...]:
     transcripts = session.scalars(
-        select(Transcript).where(Transcript.video_id == video_id).with_for_update()
+        select(Transcript)
+        .where(
+            Transcript.video_id == video_id,
+            Transcript.language.in_(requested_languages),
+        )
+        .with_for_update()
     )
+    languages: list[str] = []
     for transcript in transcripts:
-        if transcript.status in {"pending", "running"}:
+        if transcript.status == "pending" or (
+            include_running and transcript.status == "running"
+        ):
             transcript.status = "running"
             transcript.attempt_count += 1
             transcript.last_error = None
+            languages.append(transcript.language)
     session.commit()
+    return tuple(languages)
 
 
-def mark_transcription_failed(session: Session, video_id: int, error: str) -> None:
+def mark_transcription_failed(
+    session: Session, video_id: int, languages: tuple[str, ...], error: str
+) -> None:
     transcripts = session.scalars(
         select(Transcript).where(Transcript.video_id == video_id).with_for_update()
     )
     for transcript in transcripts:
-        if transcript.status not in {"stored", "unavailable"}:
+        if transcript.language in languages and transcript.status not in {
+            "stored",
+            "unavailable",
+        }:
             transcript.status = "failed"
             transcript.last_error = error[:4000]
     session.commit()

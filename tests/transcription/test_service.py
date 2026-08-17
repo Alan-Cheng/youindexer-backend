@@ -9,10 +9,12 @@ from app.transcription.youtube import (
 class _FakeFetcher:
     def __init__(self, result: SubtitleFetchResult) -> None:
         self.result = result
+        self.requested_languages: tuple[str, ...] | None = None
 
     def fetch(
         self, _video_url: str, _languages: tuple[str, ...]
     ) -> SubtitleFetchResult:
+        self.requested_languages = _languages
         return self.result
 
 
@@ -74,3 +76,23 @@ def test_process_youtube_subtitles_does_not_write_when_unavailable() -> None:
 
     assert result.status == "subtitle_unavailable"
     assert storage.objects == {}
+
+
+def test_process_youtube_subtitles_requests_only_selected_language() -> None:
+    fetch_result = SubtitleFetchResult(
+        video_id="video123",
+        video_url="https://www.youtube.com/watch?v=video123",
+        title="Example",
+        documents=(),
+        unavailable_languages=("en",),
+    )
+    fetcher = _FakeFetcher(fetch_result)
+
+    process_youtube_subtitles(
+        fetch_result.video_url,
+        languages=("en",),
+        fetcher=fetcher,
+        storage=_FakeStorage(),
+    )
+
+    assert fetcher.requested_languages == ("en",)
