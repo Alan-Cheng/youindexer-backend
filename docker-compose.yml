@@ -29,6 +29,26 @@ services:
       retries: 10
     restart: unless-stopped
 
+  transcription-worker:
+    build:
+      context: .
+    cpus: ${TRANSCRIPTION_WORKER_CPUS:-0.5}
+    mem_limit: ${TRANSCRIPTION_WORKER_MEMORY_LIMIT:-512m}
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_SECURE: "false"
+      MINIO_BUCKET: ${MINIO_BUCKET:-youindexer}
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
   minio:
     image: quay.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
     command: server /data --console-address ":9001"
@@ -39,7 +59,7 @@ services:
       - "${MINIO_API_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
-      - ./data/minio:/data
+      - minio_storage:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 5s
@@ -101,4 +121,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  minio_storage:
   opensearch_data:

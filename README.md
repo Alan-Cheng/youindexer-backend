@@ -76,9 +76,30 @@ uv run uvicorn app.main:app --reload
 - OpenSearch REST API：<http://127.0.0.1:9200>
 - OpenSearch Dashboards：<http://127.0.0.1:5601>
 
-MinIO 預設的 `youindexer` bucket 名稱已放在環境變數中，但不會在啟動時自動建立；可先透過 MinIO Console 建立。MinIO 的本地資料會儲存在專案的 `data/minio/` 目錄，該目錄已加入 `.gitignore`，不會被提交到 Git。
+MinIO 使用 Docker named volume `minio_storage` 保留物件資料。預設 bucket 為 `youindexer`，字幕 Worker 在第一次儲存物件時會自動建立。
 
 OpenSearch 與 OpenSearch Dashboards 為單節點本地開發設定，已停用安全外掛，不應直接用於生產環境。為避免佔用過多本機資源，OpenSearch 預設限制為 1 CPU 與 1 GiB 記憶體，Dashboards 限制為 0.5 CPU 與 512 MiB 記憶體；可在 `.env` 中調整對應的 `OPENSEARCH_*` 變數。
+
+## YouTube 字幕 Worker
+
+`transcription-worker` 會從 Celery `transcription` queue 取得任務，只擷取繁體中文（`zh-TW` / `zh-Hant`）與英文字幕。它會優先使用影片作者提供的字幕，其次使用 YouTube 自動字幕或翻譯軌，不會下載影片。
+
+可用以下指令發送單筆測試任務：
+
+```bash
+uv run celery -A app.worker.celery_app:celery_app call \
+  app.worker.tasks.store_youtube_subtitles \
+  --args='["https://www.youtube.com/watch?v=cjdIkl8T7Vc"]'
+```
+
+字幕會正規化為毫秒時間軸 JSON，並寫入：
+
+```text
+youindexer/transcripts/{video_id}/zh-TW.json
+youindexer/transcripts/{video_id}/en.json
+```
+
+沒有任何可用字幕時，任務會正常完成並回傳 `subtitle_unavailable`，不會重試或執行 STT。若 YouTube 要求登入，可在 `.env` 設定 Netscape 格式的 `YOUTUBE_COOKIES_FILE`；此路徑還需額外映射到 Worker container。
 
 當 FastAPI、PostgreSQL 與 Redis 都正常時，health API 會回傳 HTTP 200：
 
@@ -155,7 +176,7 @@ Bash：
 docker compose down
 ```
 
-上述指令會保留 PostgreSQL 與 Redis 的 named volumes。若確定要一併刪除本地資料，才使用：
+上述指令會保留 PostgreSQL、Redis、MinIO 與 OpenSearch 的 named volumes。若確定要一併刪除本地資料，才使用：
 
 PowerShell：
 
