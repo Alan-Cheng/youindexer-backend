@@ -6,16 +6,30 @@ dependencies = [
     "alembic>=1.19.1",
     "celery>=5.6.3",
     "fastapi>=0.141.1",
+    "playwright>=1.62.0",
     "psycopg[binary]>=3.3.4",
     "pydantic>=2.13.4",
     "redis>=8.1.0",
     "uvicorn[standard]>=0.52.3",
 ]
 
+[project.scripts]
+youtube-search = "app.youtube.cli:main"
+youtube-suggestions = "app.youtube.suggestions_cli:main"
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [dependency-groups]
 dev = [
     "commitizen>=4.17.0",
+    "httpx>=0.28.1",
     "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
 ]
 
 [tool.commitizen]
