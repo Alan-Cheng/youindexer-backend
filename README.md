@@ -1,6 +1,6 @@
 # YouIndexer Backend
 
-YouIndexer 後端服務，使用 FastAPI、PostgreSQL 與 Redis。Python 套件及虛擬環境由 [uv](https://docs.astral.sh/uv/) 管理。
+YouIndexer 後端服務，使用 FastAPI、PostgreSQL、Redis、MinIO 與 OpenSearch。Python 套件及虛擬環境由 [uv](https://docs.astral.sh/uv/) 管理。
 
 ## 本地開發需求
 
@@ -26,7 +26,7 @@ Copy-Item .env.example .env
 # 3. 安裝 commit message 檢查 hook（每個 clone 只需執行一次）
 uv run pre-commit install --hook-type commit-msg
 
-# 4. 啟動 PostgreSQL 與 Redis，並等待服務就緒
+# 4. 啟動所有基礎服務，並等待服務就緒
 docker compose up -d --wait
 ```
 
@@ -42,11 +42,11 @@ cp .env.example .env
 # 3. 安裝 commit message 檢查 hook（每個 clone 只需執行一次）
 uv run pre-commit install --hook-type commit-msg
 
-# 4. 啟動 PostgreSQL 與 Redis，並等待服務就緒
+# 4. 啟動所有基礎服務，並等待服務就緒
 docker compose up -d --wait
 ```
 
-預設 `.env.example` 可直接連到 Docker Compose 服務。如本機的 `5432` 或 `6379` 已被占用，請修改 `.env` 中的對外連接埠與連線 URL。
+預設 `.env.example` 可直接連到 Docker Compose 服務。如本機的預設連接埠已被占用，請修改 `.env` 中對應的對外連接埠與連線 URL。
 
 最後啟動 FastAPI 開發伺服器：
 
@@ -71,6 +71,14 @@ uv run uvicorn app.main:app --reload
 - Swagger UI：<http://127.0.0.1:8000/docs>
 - ReDoc：<http://127.0.0.1:8000/redoc>
 - OpenAPI JSON：<http://127.0.0.1:8000/openapi.json>
+- MinIO S3 API：<http://127.0.0.1:9000>
+- MinIO Console：<http://127.0.0.1:9001> (`minioadmin` / `minioadmin`)
+- OpenSearch REST API：<http://127.0.0.1:9200>
+- OpenSearch Dashboards：<http://127.0.0.1:5601>
+
+MinIO 預設的 `youindexer` bucket 名稱已放在環境變數中，但不會在啟動時自動建立；可先透過 MinIO Console 建立。MinIO 的本地資料會儲存在專案的 `data/minio/` 目錄，該目錄已加入 `.gitignore`，不會被提交到 Git。
+
+OpenSearch 與 OpenSearch Dashboards 為單節點本地開發設定，已停用安全外掛，不應直接用於生產環境。為避免佔用過多本機資源，OpenSearch 預設限制為 1 CPU 與 1 GiB 記憶體，Dashboards 限制為 0.5 CPU 與 512 MiB 記憶體；可在 `.env` 中調整對應的 `OPENSEARCH_*` 變數。
 
 當 FastAPI、PostgreSQL 與 Redis 都正常時，health API 會回傳 HTTP 200：
 
