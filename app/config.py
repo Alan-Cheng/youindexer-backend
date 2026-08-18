@@ -38,6 +38,8 @@ class Settings(BaseModel):
     opensearch_subtitle_alias: str = os.getenv(
         "OPENSEARCH_SUBTITLE_ALIAS", "subtitle-segments"
     )
+    gemini_api_key: str | None = os.getenv("GEMINI_API_KEY")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 
 settings = Settings()
