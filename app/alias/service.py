@@ -11,16 +11,19 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 SYSTEM_INSTRUCTION = (
-    "You are an alias generator. Given any input text, you MUST respond "
-    "ONLY with a JSON array of strings containing possible aliases, synonyms, "
-    "abbreviations, alternative names, or common variations for that text. "
-    "Before answering, use web search when available to find how people commonly "
-    "refer to the topic and include relevant search keywords from those results. "
+    "You are a search keyword normalizer and expansion engine. Given any input "
+    "text, return a JSON array of search terms. The FIRST item MUST be the single "
+    "core noun or noun phrase that best represents the topic. Remove first-person "
+    "wording, filler words, sentence fragments, and intent words. After the first "
+    "item, include useful synonyms, common names, abbreviations, brand names, "
+    "place names, and current web-search terms strongly related to the topic. "
+    "Use web search grounding to find current or popular related results when "
+    "available. Return 2-10 concise terms, with no explanations or duplicates. "
     "Do not include any explanation, commentary, or additional text. "
     "Alias for Taiwanese Mandarin should be in Traditional Chinese. "
-    'Example input: "AI" → '
-    'Example output: ["Artificial Intelligence", "machine intelligence", '
-    '"computational intelligence"]'
+    'Example input: "我一個大陸人" → Example output: ["大陸人", "中國人"] '
+    'Example input: "曼谷臘腸狗咖啡廳" → '
+    'Example output: ["臘腸狗咖啡廳", "曼谷狗狗咖啡廳", "BENKOFF"]'
 )
 
 RESPONSE_SCHEMA = {
@@ -50,6 +53,7 @@ async def get_aliases(text: str) -> list[str]:
                 system_instruction=SYSTEM_INSTRUCTION,
                 response_mime_type="application/json",
                 response_schema=RESPONSE_SCHEMA,
+                tools=[types.Tool(google_search=types.GoogleSearch())],
             ),
         )
     except AliasServiceError:
@@ -73,4 +77,14 @@ async def get_aliases(text: str) -> list[str]:
         logger.error("Gemini returned non-list JSON: %s", raw)
         raise AliasServiceError("Gemini returned unexpected JSON structure")
 
-    return [item for item in parsed if isinstance(item, str)]
+    values: list[str] = []
+    seen: set[str] = set()
+    for item in parsed:
+        if not isinstance(item, str):
+            continue
+        value = item.strip()
+        key = value.casefold()
+        if value and key not in seen:
+            values.append(value)
+            seen.add(key)
+    return values[:10]

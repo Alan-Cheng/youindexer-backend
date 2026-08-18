@@ -33,7 +33,7 @@ class Settings(BaseModel):
     youtube_cookies_file: str | None = os.getenv("YOUTUBE_COOKIES_FILE")
     opensearch_url: str = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
     opensearch_subtitle_index: str = os.getenv(
-        "OPENSEARCH_SUBTITLE_INDEX", "subtitle-segments-v1"
+        "OPENSEARCH_SUBTITLE_INDEX", "subtitle-segments-v2"
     )
     opensearch_subtitle_alias: str = os.getenv(
         "OPENSEARCH_SUBTITLE_ALIAS", "subtitle-segments"

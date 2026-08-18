@@ -125,7 +125,9 @@ GET /api/v1/youtube/videos/{video_id}/index
 GET /api/v1/youtube/subtitles/search?q=OpenSearch&language=zh-TW
 ```
 
-OpenSearch 實體 index 預設為 `subtitle-segments-v1`，API 與 Worker 透過 `subtitle-segments` alias 存取，方便未來修改 analyzer 後重建新版本索引。
+OpenSearch 實體 index 預設為 `subtitle-segments-v2`，API 與 Worker 透過 `subtitle-segments` alias 存取，方便未來修改 analyzer 後重建新版本索引。
+
+中文字幕會保留原本的 `cjk` 欄位，另外由應用層使用 `jieba` 建立 `text_zh_tokens` 分詞欄位；搜尋會同時查詢兩者。修改分詞方式後需要建立新實體 index、重新索引所有字幕，再將 `subtitle-segments` alias 切換過去，既有 index 不會自動補上新欄位。
 
 ## 即時搜尋串流
 

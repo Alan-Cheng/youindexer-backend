@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
+import jieba
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import OpenSearchException
 from opensearchpy.helpers import bulk
@@ -46,6 +47,11 @@ def _client(config: Settings) -> OpenSearch:
     )
 
 
+def _segment_zh(text: str) -> str:
+    """Create whitespace-delimited tokens for OpenSearch's standard analyzer."""
+    return " ".join(token for token in jieba.lcut_for_search(text) if token.strip())
+
+
 INDEX_BODY: dict[str, Any] = {
     "settings": {"number_of_shards": 1, "number_of_replicas": 0},
     "mappings": {
@@ -57,6 +63,7 @@ INDEX_BODY: dict[str, Any] = {
             "start_ms": {"type": "long"},
             "end_ms": {"type": "long"},
             "text_zh": {"type": "text", "analyzer": "cjk"},
+            "text_zh_tokens": {"type": "text", "analyzer": "standard"},
             "text_en": {"type": "text", "analyzer": "english"},
             "title": {"type": "text"},
             "video_url": {"type": "keyword", "index": False},
@@ -145,6 +152,7 @@ class OpenSearchSubtitleIndexer:
                 "start_ms": start_ms,
                 "end_ms": end_ms,
                 "text_zh": text if text_field == "text_zh" else None,
+                "text_zh_tokens": _segment_zh(text) if text_field == "text_zh" else None,
                 "text_en": text if text_field == "text_en" else None,
                 "title": document.get("title") or "",
                 "video_url": document.get("video_url") or "",
@@ -213,7 +221,7 @@ class OpenSearchSubtitleIndexer:
         matches_per_video: int = 5,
     ) -> list[SubtitleSearchHit]:
         """Search subtitle segments, optionally restricted to selected videos."""
-        fields = ["text_zh^5", "text_en^5"]
+        fields = ["text_zh_tokens^5", "text_zh^2", "text_en^5"]
         if language is not None and languages is not None:
             raise ValueError("language and languages cannot both be specified")
         filters = [{"term": {"language": language}}] if language else []
@@ -229,7 +237,8 @@ class OpenSearchSubtitleIndexer:
             if limit is not None
             else (len(normalized_video_ids) if video_ids is not None else 10)
         )
-        search_terms = list(dict.fromkeys([query, *(aliases or ())]))
+        # Aliases are normalized search terms. Do not mix them with the raw query.
+        search_terms = list(dict.fromkeys(aliases or [query]))
         named_terms = {
             f"keyword_{index}": term for index, term in enumerate(search_terms)
         }
@@ -244,7 +253,7 @@ class OpenSearchSubtitleIndexer:
                                     {
                                         "multi_match": {
                                             "_name": name,
-                                            "query": term,
+                                            "query": _segment_zh(term),
                                             "fields": fields,
                                         }
                                     }

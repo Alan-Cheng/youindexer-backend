@@ -68,8 +68,10 @@ services:
       MINIO_SECURE: "false"
       MINIO_BUCKET: ${MINIO_BUCKET:-youindexer}
       OPENSEARCH_URL: http://opensearch:9200
-      OPENSEARCH_SUBTITLE_INDEX: ${OPENSEARCH_SUBTITLE_INDEX:-subtitle-segments-v1}
+      OPENSEARCH_SUBTITLE_INDEX: ${OPENSEARCH_SUBTITLE_INDEX:-subtitle-segments-v2}
       OPENSEARCH_SUBTITLE_ALIAS: ${OPENSEARCH_SUBTITLE_ALIAS:-subtitle-segments}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
     depends_on:
       postgres:
         condition: service_healthy

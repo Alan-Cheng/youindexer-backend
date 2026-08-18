@@ -1,4 +1,4 @@
-from app.indexing.opensearch import OpenSearchSubtitleIndexer
+from app.indexing.opensearch import OpenSearchSubtitleIndexer, _segment_zh
 
 
 class _Indices:
@@ -54,7 +54,7 @@ class _HighlightedSearchClient(_SearchClient):
                             "end_ms": 200,
                             "text_zh": "人工智慧",
                         },
-                        "matched_queries": ["keyword_1"],
+                        "matched_queries": ["keyword_0"],
                         "highlight": {"text_zh": ["人工<mark>智慧</mark>"]},
                     }
                 ]
@@ -101,6 +101,7 @@ def test_indexes_each_subtitle_segment_with_timestamp(monkeypatch) -> None:
     assert captured[0]["_id"] == "abc123:zh-TW:0"
     assert captured[0]["_source"]["start_ms"] == 1200
     assert captured[0]["_source"]["text_zh"] == "介紹 OpenSearch"
+    assert captured[0]["_source"]["text_zh_tokens"]
     assert client.deleted_query is not None
 
 
@@ -118,7 +119,7 @@ def test_search_can_be_restricted_to_selected_video_ids() -> None:
     assert client.search_request["body"]["size"] == 2
 
 
-def test_search_includes_aliases_as_alternative_terms() -> None:
+def test_search_uses_processed_aliases_instead_of_raw_query() -> None:
     client = _SearchClient()
     indexer = OpenSearchSubtitleIndexer(
         client, index_name="subtitle-segments-v1", index_alias="subtitle-segments"
@@ -129,15 +130,45 @@ def test_search_includes_aliases_as_alternative_terms() -> None:
     assert client.search_request is not None
     should = client.search_request["body"]["query"]["bool"]["must"][0]["bool"]["should"]
     assert [item["multi_match"]["query"] for item in should] == [
-        "robot",
         "AI",
         "machine intelligence",
     ]
     assert [item["multi_match"]["_name"] for item in should] == [
         "keyword_0",
         "keyword_1",
-        "keyword_2",
     ]
+
+
+def test_search_falls_back_to_raw_query_without_processed_alias() -> None:
+    client = _SearchClient()
+    indexer = OpenSearchSubtitleIndexer(
+        client, index_name="subtitle-segments-v1", index_alias="subtitle-segments"
+    )
+
+    indexer.search("人工智慧", aliases=[])
+
+    assert client.search_request is not None
+    should = client.search_request["body"]["query"]["bool"]["must"][0]["bool"][
+        "should"
+    ]
+    assert [item["multi_match"]["query"] for item in should] == [
+        _segment_zh("人工智慧")
+    ]
+
+
+def test_search_segments_chinese_terms_before_querying() -> None:
+    client = _SearchClient()
+    indexer = OpenSearchSubtitleIndexer(
+        client, index_name="subtitle-segments-v1", index_alias="subtitle-segments"
+    )
+
+    indexer.search("人工智慧")
+
+    assert client.search_request is not None
+    should = client.search_request["body"]["query"]["bool"]["must"][0]["bool"][
+        "should"
+    ]
+    assert " " in should[0]["multi_match"]["query"]
 
 
 def test_search_returns_matched_keywords_and_highlight() -> None:
