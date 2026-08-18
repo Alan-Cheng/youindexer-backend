@@ -19,6 +19,7 @@ celery_app.conf.update(
         "app.worker.tasks.store_youtube_subtitles": {"queue": "transcription"},
         "app.worker.tasks.index_subtitle": {"queue": "indexing"},
         "app.worker.tasks.dispatch_outbox_events": {"queue": "outbox"},
+        "app.worker.tasks.reconcile_keyword_search_jobs": {"queue": "outbox"},
     },
     task_serializer="json",
     timezone="UTC",
@@ -28,6 +29,11 @@ celery_app.conf.update(
             "task": "app.worker.tasks.dispatch_outbox_events",
             "schedule": 5.0,
             "options": {"queue": "outbox"},
-        }
+        },
+        "reconcile-keyword-search-jobs": {
+            "task": "app.worker.tasks.reconcile_keyword_search_jobs",
+            "schedule": 1.0,
+            "options": {"queue": "outbox"},
+        },
     },
 )

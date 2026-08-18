@@ -1,15 +1,19 @@
 """YouTube search API routes."""
 
 import asyncio
+import json
 from dataclasses import asdict
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.responses import StreamingResponse
 
 from app.database.session import SessionLocal
+from app.system_config.service import get_system_config
+from app.transcription.storage import SubtitleStorageError
 from app.youtube import (
     YouTubeSearchError,
     YouTubeSuggestionError,
@@ -21,6 +25,10 @@ from app.youtube.repository import (
     get_video_index_state,
     request_video_indexing,
     save_search_results,
+)
+from app.youtube.keyword_jobs import (
+    create_keyword_search_job,
+    get_keyword_search_job_snapshot,
 )
 
 router = APIRouter()
@@ -84,6 +92,41 @@ class SubtitleSearchResponse(BaseModel):
     items: list[SubtitleMatchResponse]
 
 
+class KeywordSearchJobRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=200)
+    locale: str = Field(
+        default="zh-TW", pattern=r"^[A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?$"
+    )
+    matches_per_video: int = Field(default=5, ge=1, le=20)
+
+
+class KeywordSearchVideoResponse(BaseModel):
+    status: str
+    metadata: YouTubeVideoResponse
+    keyword_matches: list[SubtitleMatchResponse]
+    transcripts: list[dict]
+    error: str | None
+
+
+class KeywordSearchJobResponse(BaseModel):
+    task_id: str
+    query: str
+    status: str
+    requested_count: int
+    video_count: int
+    completed_count: int
+    matched_count: int
+    videos: dict[str, KeywordSearchVideoResponse]
+    error: str | None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+
+
+DEFAULT_STREAM_VIDEO_LIMIT = 3
+DEFAULT_STREAM_POLL_INTERVAL_SECONDS = 1.0
+
+
 def _save_search(query: str, locale: str, requested_limit: int, results: list) -> None:
     with SessionLocal() as session:
         save_search_results(
@@ -105,6 +148,46 @@ def _get_index_state(video_id: str) -> VideoIndexState | None:
         return get_video_index_state(session, video_id)
 
 
+def _configured_stream_limit() -> int:
+    value = get_system_config(
+        "DEFAULT_YOUTUBE_VIDEO_RESULT_LIMIT", DEFAULT_STREAM_VIDEO_LIMIT
+    )
+    if isinstance(value, bool):
+        return DEFAULT_STREAM_VIDEO_LIMIT
+    try:
+        return min(max(int(value), 1), 100)
+    except (TypeError, ValueError):
+        return DEFAULT_STREAM_VIDEO_LIMIT
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _create_keyword_job(
+    *,
+    query: str,
+    locale: str,
+    requested_count: int,
+    matches_per_video: int,
+    results: list,
+) -> str:
+    with SessionLocal() as session:
+        return create_keyword_search_job(
+            session,
+            query=query,
+            locale=locale,
+            requested_count=requested_count,
+            matches_per_video=matches_per_video,
+            results=results,
+        )
+
+
+def _get_keyword_job(task_id: str) -> dict | None:
+    with SessionLocal() as session:
+        return get_keyword_search_job_snapshot(session, task_id)
+
+
 def _index_response(state: VideoIndexState) -> VideoIndexStatusResponse:
     return VideoIndexStatusResponse(
         video_id=state.youtube_video_id,
@@ -116,7 +199,7 @@ def _index_response(state: VideoIndexState) -> VideoIndexStatusResponse:
     )
 
 
-@router.get("/youtube/suggestions", response_model=YouTubeSuggestionsResponse)
+@router.get("/youtube/keyword-suggestions", response_model=YouTubeSuggestionsResponse)
 async def youtube_suggestions(
     q: Annotated[
         str,
@@ -167,11 +250,11 @@ async def youtube_suggestions(
     )
 
 
-@router.get("/youtube/search", response_model=YouTubeSearchResponse)
+@router.get("/youtube/search-metadata", response_model=YouTubeSearchResponse)
 async def youtube_search(
     q: Annotated[
         str,
-        Query(min_length=1, max_length=200, description="YouTube 搜尋關鍵字"),
+        Query(min_length=1, max_length=200, description="透過關鍵字取得 YouTube Web 搜尋結果的 Metadata"),
     ],
     limit: Annotated[
         int,
@@ -226,6 +309,121 @@ async def youtube_search(
         query=normalized_query,
         count=len(results),
         items=[YouTubeVideoResponse(**result.as_dict()) for result in results],
+    )
+
+
+@router.post(
+    "/youtube/search-jobs",
+    response_model=KeywordSearchJobResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_keyword_search(
+    payload: KeywordSearchJobRequest,
+) -> KeywordSearchJobResponse:
+    """Create a durable search job after all selected metadata is available."""
+    query = payload.query.strip()
+    if not query:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="query must not be blank",
+        )
+    try:
+        video_count = await asyncio.to_thread(_configured_stream_limit)
+        results = await asyncio.to_thread(
+            search_youtube,
+            query,
+            video_count,
+            headless=True,
+            timeout_ms=30_000,
+            locale=payload.locale,
+        )
+        await asyncio.to_thread(
+            _save_search, query, payload.locale, video_count, results
+        )
+        for result in results:
+            await asyncio.to_thread(_request_index, result.video_id)
+        task_id = await asyncio.to_thread(
+            _create_keyword_job,
+            query=query,
+            locale=payload.locale,
+            requested_count=video_count,
+            matches_per_video=payload.matches_per_video,
+            results=results,
+        )
+        snapshot = await asyncio.to_thread(_get_keyword_job, task_id)
+    except YouTubeSearchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="failed to create keyword search job",
+        ) from exc
+    assert snapshot is not None
+    return KeywordSearchJobResponse.model_validate(snapshot)
+
+
+@router.get(
+    "/youtube/search-jobs/{task_id}", response_model=KeywordSearchJobResponse
+)
+async def keyword_search_job(task_id: str) -> KeywordSearchJobResponse:
+    """Return the latest durable snapshot for a keyword-search job."""
+    try:
+        snapshot = await asyncio.to_thread(_get_keyword_job, task_id)
+    except (SQLAlchemyError, SubtitleStorageError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    if snapshot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+    return KeywordSearchJobResponse.model_validate(snapshot)
+
+
+@router.get("/youtube/search-jobs/{task_id}/events")
+async def keyword_search_job_events(task_id: str):
+    """Stream durable snapshots; reconnecting always starts with current state."""
+    try:
+        initial = await asyncio.to_thread(_get_keyword_job, task_id)
+    except (SQLAlchemyError, SubtitleStorageError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    if initial is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+
+    async def events():
+        last_payload: str | None = None
+        unchanged_polls = 0
+        while True:
+            try:
+                snapshot = await asyncio.to_thread(_get_keyword_job, task_id)
+            except (SQLAlchemyError, SubtitleStorageError) as exc:
+                yield _sse("error", {"task_id": task_id, "detail": str(exc)})
+                return
+            if snapshot is None:
+                yield _sse("error", {"task_id": task_id, "detail": "task not found"})
+                return
+            response = KeywordSearchJobResponse.model_validate(snapshot)
+            payload = response.model_dump_json()
+            if payload != last_payload:
+                event = "snapshot" if last_payload is None else "update"
+                yield f"event: {event}\ndata: {payload}\n\n"
+                last_payload = payload
+                unchanged_polls = 0
+            else:
+                unchanged_polls += 1
+                if unchanged_polls >= 15:
+                    yield ": keep-alive\n\n"
+                    unchanged_polls = 0
+            if response.status in {"completed", "failed"}:
+                return
+            await asyncio.sleep(DEFAULT_STREAM_POLL_INTERVAL_SECONDS)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

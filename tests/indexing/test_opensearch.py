@@ -28,6 +28,16 @@ class _Client:
         self.deleted_query = kwargs
 
 
+class _SearchClient(_Client):
+    def __init__(self) -> None:
+        super().__init__()
+        self.search_request: dict | None = None
+
+    def search(self, **kwargs) -> dict:
+        self.search_request = kwargs
+        return {"hits": {"hits": []}}
+
+
 def subtitle_document() -> dict:
     return {
         "version": 1,
@@ -68,3 +78,27 @@ def test_indexes_each_subtitle_segment_with_timestamp(monkeypatch) -> None:
     assert captured[0]["_source"]["start_ms"] == 1200
     assert captured[0]["_source"]["text_zh"] == "介紹 OpenSearch"
     assert client.deleted_query is not None
+
+
+def test_search_can_be_restricted_to_selected_video_ids() -> None:
+    client = _SearchClient()
+    indexer = OpenSearchSubtitleIndexer(
+        client, index_name="subtitle-segments-v1", index_alias="subtitle-segments"
+    )
+
+    assert indexer.search("robot", video_ids=["video-1", "video-2"]) == []
+
+    assert client.search_request is not None
+    filters = client.search_request["body"]["query"]["bool"]["filter"]
+    assert {"terms": {"video_id": ["video-1", "video-2"]}} in filters
+    assert client.search_request["body"]["size"] == 2
+
+
+def test_search_with_explicit_empty_video_ids_does_not_search() -> None:
+    client = _SearchClient()
+    indexer = OpenSearchSubtitleIndexer(
+        client, index_name="subtitle-segments-v1", index_alias="subtitle-segments"
+    )
+
+    assert indexer.search("robot", video_ids=[]) == []
+    assert client.search_request is None

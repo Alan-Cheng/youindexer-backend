@@ -203,14 +203,26 @@ class OpenSearchSubtitleIndexer:
         self,
         query: str,
         *,
+        video_ids: list[str] | tuple[str, ...] | None = None,
         language: str | None = None,
-        limit: int = 10,
+        limit: int | None = None,
         matches_per_video: int = 5,
     ) -> list[SubtitleSearchHit]:
+        """Search subtitle segments, optionally restricted to selected videos."""
         fields = ["text_zh^5", "text_en^5"]
         filters = [{"term": {"language": language}}] if language else []
+        normalized_video_ids = list(dict.fromkeys(video_ids or ()))
+        if video_ids is not None:
+            if not normalized_video_ids:
+                return []
+            filters.append({"terms": {"video_id": normalized_video_ids}})
+        result_limit = (
+            limit
+            if limit is not None
+            else (len(normalized_video_ids) if video_ids is not None else 10)
+        )
         body: dict[str, Any] = {
-            "size": limit,
+            "size": result_limit,
             "query": {
                 "bool": {
                     "must": [{"multi_match": {"query": query, "fields": fields}}],

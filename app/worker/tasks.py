@@ -19,6 +19,7 @@ from app.youtube.repository import (
     mark_transcription_running,
     record_transcription_result,
 )
+from app.youtube.keyword_jobs import reconcile_keyword_search_jobs
 
 
 @celery_app.task(
@@ -107,3 +108,15 @@ def dispatch_outbox_events() -> dict:
     with SessionLocal() as session:
         published = dispatch_pending_events(session)
     return {"published": published}
+
+
+@celery_app.task(
+    name="app.worker.tasks.reconcile_keyword_search_jobs",
+    queue="outbox",
+    ignore_result=True,
+)
+def reconcile_search_jobs() -> dict:
+    """Persist per-video OpenSearch results for active keyword-search jobs."""
+    with SessionLocal() as session:
+        changed = reconcile_keyword_search_jobs(session)
+    return {"changed": changed}

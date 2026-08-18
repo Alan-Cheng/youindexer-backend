@@ -127,6 +127,27 @@ GET /api/v1/youtube/subtitles/search?q=OpenSearch&language=zh-TW
 
 OpenSearch 實體 index 預設為 `subtitle-segments-v1`，API 與 Worker 透過 `subtitle-segments` alias 存取，方便未來修改 analyzer 後重建新版本索引。
 
+## 即時搜尋串流
+
+建立搜尋任務時會依 `system_config.DEFAULT_YOUTUBE_VIDEO_RESULT_LIMIT` 取得全部影片 metadata，持久化任務並自動建立字幕與索引工作。建立 API 會在全部 metadata 取得後才回應，因此前端能一次建立所有 loading 卡片：
+
+```http
+POST /api/v1/youtube/search-jobs
+Content-Type: application/json
+
+{"query":"機器人","locale":"zh-TW","matches_per_video":5}
+```
+
+使用 task ID 可隨時取得持久化 snapshot，或訂閱相同 response body 的 SSE 更新：
+
+```http
+GET /api/v1/youtube/search-jobs/{task_id}
+GET /api/v1/youtube/search-jobs/{task_id}/events
+Accept: text/event-stream
+```
+
+Response 的 `videos` 以 YouTube video ID 為 key，每組包含 `status`、`metadata`、`keyword_matches`、`transcripts` 與 `error`。背景排程每秒檢查索引進度，只在指定影片 ID 內執行 OpenSearch 查詢並保存結果；SSE 中斷不會中止任務，重新連線會先收到最新的完整 snapshot。Nginx 等反向代理需停用 events 路徑的 response buffering。
+
 資料庫 schema 由 Alembic 管理。啟動服務後執行：
 
 ```bash
