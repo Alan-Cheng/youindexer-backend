@@ -5,7 +5,11 @@ from unittest.mock import Mock
 from redis.exceptions import ConnectionError
 
 from app.database.models import SystemConfig
-from app.system_config.service import SystemConfigService
+from app.system_config.service import (
+    DEFAULT_SUBTITLE_LANGUAGES,
+    SystemConfigService,
+    get_default_subtitle_languages,
+)
 
 
 def test_get_returns_cached_value_without_querying_database() -> None:
@@ -59,3 +63,21 @@ def test_get_returns_default_when_config_does_not_exist() -> None:
     result = SystemConfigService(session, redis_client).get("UNKNOWN", default=10)
 
     assert result == 10
+
+
+def test_default_subtitle_languages_are_read_from_system_config(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.system_config.service.get_system_config",
+        lambda key, default: ["en", "zh-TW", "en"],
+    )
+
+    assert get_default_subtitle_languages() == ("en", "zh-TW")
+
+
+def test_default_subtitle_languages_fall_back_for_invalid_value(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.system_config.service.get_system_config",
+        lambda key, default: ["ja"],
+    )
+
+    assert get_default_subtitle_languages() == DEFAULT_SUBTITLE_LANGUAGES

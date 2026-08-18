@@ -12,7 +12,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import StreamingResponse
 
 from app.database.session import SessionLocal
-from app.system_config.service import get_system_config
+from app.system_config.service import (
+    get_default_subtitle_languages,
+    get_system_config,
+)
 from app.transcription.storage import SubtitleStorageError
 from app.youtube import (
     YouTubeSearchError,
@@ -140,7 +143,9 @@ def _save_search(query: str, locale: str, requested_limit: int, results: list) -
 
 def _request_index(video_id: str) -> VideoIndexState | None:
     with SessionLocal() as session:
-        return request_video_indexing(session, video_id)
+        return request_video_indexing(
+            session, video_id, languages=get_default_subtitle_languages()
+        )
 
 
 def _get_index_state(video_id: str) -> VideoIndexState | None:
@@ -485,12 +490,18 @@ async def search_subtitles(
             detail="q must not be blank",
         )
     try:
-        hits = await asyncio.to_thread(
-            OpenSearchSubtitleIndexer.from_settings().search,
-            normalized_query,
-            language=language,
-            limit=limit,
-        )
+        indexer = OpenSearchSubtitleIndexer.from_settings()
+        if language is not None:
+            hits = await asyncio.to_thread(
+                indexer.search, normalized_query, language=language, limit=limit
+            )
+        else:
+            hits = await asyncio.to_thread(
+                indexer.search,
+                normalized_query,
+                languages=get_default_subtitle_languages(),
+                limit=limit,
+            )
     except SubtitleIndexError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)

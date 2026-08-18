@@ -94,6 +94,19 @@ def test_search_can_be_restricted_to_selected_video_ids() -> None:
     assert client.search_request["body"]["size"] == 2
 
 
+def test_search_can_be_restricted_to_configured_languages() -> None:
+    client = _SearchClient()
+    indexer = OpenSearchSubtitleIndexer(
+        client, index_name="subtitle-segments-v1", index_alias="subtitle-segments"
+    )
+
+    assert indexer.search("robot", languages=("zh-TW",)) == []
+
+    assert client.search_request is not None
+    filters = client.search_request["body"]["query"]["bool"]["filter"]
+    assert {"terms": {"language": ["zh-TW"]}} in filters
+
+
 def test_search_with_explicit_empty_video_ids_does_not_search() -> None:
     client = _SearchClient()
     indexer = OpenSearchSubtitleIndexer(

@@ -13,6 +13,8 @@ from app.database.session import SessionLocal
 
 CACHE_KEY_PREFIX = "system_config:"
 CACHE_TTL_SECONDS = 3600
+DEFAULT_SUBTITLE_LANGUAGES_KEY = "DEFAULT_SUBTITLE_LANGUAGES"
+DEFAULT_SUBTITLE_LANGUAGES = ("zh-TW",)
 
 
 class SystemConfigService:
@@ -73,3 +75,23 @@ def get_system_config(key: str, default: Any = None) -> Any:
             return SystemConfigService(session, redis_client).get(key, default)
     finally:
         redis_client.close()
+
+
+def get_default_subtitle_languages() -> tuple[str, ...]:
+    """Return validated subtitle languages used for retrieval and search."""
+    from app.transcription.youtube import SUPPORTED_LANGUAGES
+
+    value = get_system_config(
+        DEFAULT_SUBTITLE_LANGUAGES_KEY, list(DEFAULT_SUBTITLE_LANGUAGES)
+    )
+    if not isinstance(value, list):
+        return DEFAULT_SUBTITLE_LANGUAGES
+
+    languages = tuple(
+        dict.fromkeys(
+            language
+            for language in value
+            if isinstance(language, str) and language in SUPPORTED_LANGUAGES
+        )
+    )
+    return languages or DEFAULT_SUBTITLE_LANGUAGES

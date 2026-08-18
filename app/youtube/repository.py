@@ -108,7 +108,10 @@ def save_search_results(
 
 
 def request_video_indexing(
-    session: Session, youtube_video_id: str
+    session: Session,
+    youtube_video_id: str,
+    *,
+    languages: tuple[str, ...] = SUPPORTED_LANGUAGES,
 ) -> VideoIndexState | None:
     """Create one durable transcription request for a discovered video."""
     video = session.scalar(
@@ -126,7 +129,7 @@ def request_video_indexing(
         )
     }
     languages_to_fetch: list[str] = []
-    for language in SUPPORTED_LANGUAGES:
+    for language in languages:
         transcript = transcripts.get(language)
         if transcript is None:
             transcript = Transcript(

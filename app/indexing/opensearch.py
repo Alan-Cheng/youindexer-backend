@@ -205,12 +205,17 @@ class OpenSearchSubtitleIndexer:
         *,
         video_ids: list[str] | tuple[str, ...] | None = None,
         language: str | None = None,
+        languages: tuple[str, ...] | None = None,
         limit: int | None = None,
         matches_per_video: int = 5,
     ) -> list[SubtitleSearchHit]:
         """Search subtitle segments, optionally restricted to selected videos."""
         fields = ["text_zh^5", "text_en^5"]
+        if language is not None and languages is not None:
+            raise ValueError("language and languages cannot both be specified")
         filters = [{"term": {"language": language}}] if language else []
+        if languages is not None:
+            filters.append({"terms": {"language": list(languages)}})
         normalized_video_ids = list(dict.fromkeys(video_ids or ()))
         if video_ids is not None:
             if not normalized_video_ids:

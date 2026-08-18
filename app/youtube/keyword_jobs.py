@@ -14,6 +14,7 @@ from app.database.models import (
     YouTubeVideo,
 )
 from app.indexing import OpenSearchSubtitleIndexer
+from app.system_config.service import get_default_subtitle_languages
 from app.transcription.storage import MinioSubtitleStorage
 from app.youtube.repository import get_video_index_state
 from app.youtube.search import YouTubeSearchResult
@@ -92,6 +93,7 @@ def reconcile_keyword_search_jobs(session: Session) -> int:
     )
     changed = 0
     indexer = OpenSearchSubtitleIndexer.from_settings()
+    languages = get_default_subtitle_languages()
     now = datetime.now(UTC)
     for job in jobs:
         for item in job.videos:
@@ -126,6 +128,7 @@ def reconcile_keyword_search_jobs(session: Session) -> int:
                 hits = indexer.search(
                     job.query,
                     video_ids=[item.video.youtube_video_id],
+                    languages=languages,
                     limit=1,
                     matches_per_video=job.matches_per_video,
                 )

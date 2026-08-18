@@ -9,9 +9,10 @@ from app.indexing.repository import (
     fail_index_job,
     start_index_job,
 )
+from app.system_config.service import get_default_subtitle_languages
 from app.transcription.service import process_youtube_subtitles
 from app.transcription.storage import MinioSubtitleStorage
-from app.transcription.youtube import SUPPORTED_LANGUAGES, YouTubeRateLimitError
+from app.transcription.youtube import YouTubeRateLimitError
 from app.worker.celery_app import celery_app
 from app.worker.outbox import dispatch_pending_events
 from app.youtube.repository import (
@@ -38,7 +39,7 @@ def store_youtube_subtitles(
     language: str | None = None,
 ) -> dict:
     """Fetch zh-TW/English YouTube subtitles and store normalized JSON in MinIO."""
-    languages = (language,) if language else SUPPORTED_LANGUAGES
+    languages = (language,) if language else get_default_subtitle_languages()
     try:
         if video_id is not None:
             with SessionLocal() as session:
