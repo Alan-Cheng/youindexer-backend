@@ -27,6 +27,8 @@ class SubtitleSearchHit:
     end_ms: int
     text: str
     score: float
+    matched_keywords: tuple[str, ...] = ()
+    highlighted_text: str | None = None
 
 
 def _client(config: Settings) -> OpenSearch:
@@ -203,6 +205,7 @@ class OpenSearchSubtitleIndexer:
         self,
         query: str,
         *,
+        aliases: list[str] | tuple[str, ...] | None = None,
         video_ids: list[str] | tuple[str, ...] | None = None,
         language: str | None = None,
         languages: tuple[str, ...] | None = None,
@@ -226,11 +229,31 @@ class OpenSearchSubtitleIndexer:
             if limit is not None
             else (len(normalized_video_ids) if video_ids is not None else 10)
         )
+        search_terms = list(dict.fromkeys([query, *(aliases or ())]))
+        named_terms = {
+            f"keyword_{index}": term for index, term in enumerate(search_terms)
+        }
         body: dict[str, Any] = {
             "size": result_limit,
             "query": {
                 "bool": {
-                    "must": [{"multi_match": {"query": query, "fields": fields}}],
+                    "must": [
+                        {
+                            "bool": {
+                                "should": [
+                                    {
+                                        "multi_match": {
+                                            "_name": name,
+                                            "query": term,
+                                            "fields": fields,
+                                        }
+                                    }
+                                    for name, term in named_terms.items()
+                                ],
+                                "minimum_should_match": 1,
+                            }
+                        }
+                    ],
                     "filter": filters,
                 }
             },
@@ -240,6 +263,13 @@ class OpenSearchSubtitleIndexer:
                     "name": "matching_segments",
                     "size": matches_per_video,
                     "sort": [{"_score": "desc"}, {"start_ms": "asc"}],
+                    "highlight": {
+                        "pre_tags": ["<mark>"],
+                        "post_tags": ["</mark>"],
+                        "encoder": "html",
+                        "number_of_fragments": 0,
+                        "fields": {"text_zh": {}, "text_en": {}},
+                    },
                 },
             },
         }
@@ -259,6 +289,24 @@ class OpenSearchSubtitleIndexer:
             for hit in inner or [group]:
                 source = hit["_source"]
                 text = source.get("text_zh") or source.get("text_en") or ""
+                matched_names = hit.get("matched_queries", [])
+                if isinstance(matched_names, str):
+                    matched_names = [matched_names]
+                matched_keywords = tuple(
+                    named_terms[name]
+                    for name in matched_names
+                    if name in named_terms
+                )
+                highlights = hit.get("highlight", {})
+                highlighted_text = next(
+                    (
+                        fragment
+                        for field in ("text_zh", "text_en")
+                        for fragment in highlights.get(field, [])
+                        if isinstance(fragment, str)
+                    ),
+                    None,
+                )
                 results.append(
                     SubtitleSearchHit(
                         video_id=source["video_id"],
@@ -268,6 +316,8 @@ class OpenSearchSubtitleIndexer:
                         end_ms=source["end_ms"],
                         text=text,
                         score=float(hit.get("_score") or 0),
+                        matched_keywords=matched_keywords,
+                        highlighted_text=highlighted_text,
                     )
                 )
         return results

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import StreamingResponse
 
+from app.alias.service import AliasServiceError, get_aliases
 from app.database.session import SessionLocal
 from app.system_config.service import (
     get_default_subtitle_languages,
@@ -87,6 +88,8 @@ class SubtitleMatchResponse(BaseModel):
     seek_seconds: float
     text: str
     score: float
+    matched_keywords: list[str] = Field(default_factory=list)
+    highlighted_text: str | None = None
 
 
 class SubtitleSearchResponse(BaseModel):
@@ -490,15 +493,24 @@ async def search_subtitles(
             detail="q must not be blank",
         )
     try:
+        try:
+            aliases = await get_aliases(normalized_query)
+        except AliasServiceError:
+            aliases = []
         indexer = OpenSearchSubtitleIndexer.from_settings()
         if language is not None:
             hits = await asyncio.to_thread(
-                indexer.search, normalized_query, language=language, limit=limit
+                indexer.search,
+                normalized_query,
+                aliases=aliases,
+                language=language,
+                limit=limit,
             )
         else:
             hits = await asyncio.to_thread(
                 indexer.search,
                 normalized_query,
+                aliases=aliases,
                 languages=get_default_subtitle_languages(),
                 limit=limit,
             )
@@ -516,6 +528,8 @@ async def search_subtitles(
             seek_seconds=hit.start_ms / 1000,
             text=hit.text,
             score=hit.score,
+            matched_keywords=list(hit.matched_keywords),
+            highlighted_text=hit.highlighted_text,
         )
         for hit in hits
     ]

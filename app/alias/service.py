@@ -14,6 +14,8 @@ SYSTEM_INSTRUCTION = (
     "You are an alias generator. Given any input text, you MUST respond "
     "ONLY with a JSON array of strings containing possible aliases, synonyms, "
     "abbreviations, alternative names, or common variations for that text. "
+    "Before answering, use web search when available to find how people commonly "
+    "refer to the topic and include relevant search keywords from those results. "
     "Do not include any explanation, commentary, or additional text. "
     "Alias for Taiwanese Mandarin should be in Traditional Chinese. "
     'Example input: "AI" → '

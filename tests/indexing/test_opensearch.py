@@ -38,6 +38,30 @@ class _SearchClient(_Client):
         return {"hits": {"hits": []}}
 
 
+class _HighlightedSearchClient(_SearchClient):
+    def search(self, **kwargs) -> dict:
+        self.search_request = kwargs
+        return {
+            "hits": {
+                "hits": [
+                    {
+                        "_score": 3.5,
+                        "_source": {
+                            "video_id": "video-1",
+                            "title": "Example",
+                            "language": "zh-TW",
+                            "start_ms": 100,
+                            "end_ms": 200,
+                            "text_zh": "人工智慧",
+                        },
+                        "matched_queries": ["keyword_1"],
+                        "highlight": {"text_zh": ["人工<mark>智慧</mark>"]},
+                    }
+                ]
+            }
+        }
+
+
 def subtitle_document() -> dict:
     return {
         "version": 1,
@@ -92,6 +116,40 @@ def test_search_can_be_restricted_to_selected_video_ids() -> None:
     filters = client.search_request["body"]["query"]["bool"]["filter"]
     assert {"terms": {"video_id": ["video-1", "video-2"]}} in filters
     assert client.search_request["body"]["size"] == 2
+
+
+def test_search_includes_aliases_as_alternative_terms() -> None:
+    client = _SearchClient()
+    indexer = OpenSearchSubtitleIndexer(
+        client, index_name="subtitle-segments-v1", index_alias="subtitle-segments"
+    )
+
+    indexer.search("robot", aliases=["AI", "machine intelligence"])
+
+    assert client.search_request is not None
+    should = client.search_request["body"]["query"]["bool"]["must"][0]["bool"]["should"]
+    assert [item["multi_match"]["query"] for item in should] == [
+        "robot",
+        "AI",
+        "machine intelligence",
+    ]
+    assert [item["multi_match"]["_name"] for item in should] == [
+        "keyword_0",
+        "keyword_1",
+        "keyword_2",
+    ]
+
+
+def test_search_returns_matched_keywords_and_highlight() -> None:
+    client = _HighlightedSearchClient()
+    indexer = OpenSearchSubtitleIndexer(
+        client, index_name="subtitle-segments-v1", index_alias="subtitle-segments"
+    )
+
+    hits = indexer.search("AI", aliases=["人工智慧"])
+
+    assert hits[0].matched_keywords == ("人工智慧",)
+    assert hits[0].highlighted_text == "人工<mark>智慧</mark>"
 
 
 def test_search_can_be_restricted_to_configured_languages() -> None:

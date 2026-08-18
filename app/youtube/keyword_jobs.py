@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
+import logging
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.alias.service import AliasServiceError, get_aliases
 from app.database.models import (
     KeywordSearchJob,
     KeywordSearchJobVideo,
@@ -18,6 +21,8 @@ from app.system_config.service import get_default_subtitle_languages
 from app.transcription.storage import MinioSubtitleStorage
 from app.youtube.repository import get_video_index_state
 from app.youtube.search import YouTubeSearchResult
+
+logger = logging.getLogger(__name__)
 
 
 def create_keyword_search_job(
@@ -78,6 +83,16 @@ def _finished(state) -> bool:
     return True
 
 
+def _search_aliases(query: str) -> list[str]:
+    """Get aliases once per job; search still works if the alias service is unavailable."""
+    try:
+        aliases = asyncio.run(get_aliases(query))
+    except AliasServiceError as exc:
+        logger.warning("Alias generation failed for keyword search %r: %s", query, exc)
+        return []
+    return list(dict.fromkeys(alias.strip() for alias in aliases if alias.strip()))
+
+
 def reconcile_keyword_search_jobs(session: Session) -> int:
     """Persist OpenSearch results for every newly finished job video."""
     jobs = list(
@@ -96,6 +111,7 @@ def reconcile_keyword_search_jobs(session: Session) -> int:
     languages = get_default_subtitle_languages()
     now = datetime.now(UTC)
     for job in jobs:
+        aliases: list[str] | None = None
         for item in job.videos:
             if item.status != "loading":
                 continue
@@ -125,8 +141,11 @@ def reconcile_keyword_search_jobs(session: Session) -> int:
                 changed += 1
                 continue
             try:
+                if aliases is None:
+                    aliases = _search_aliases(job.query)
                 hits = indexer.search(
                     job.query,
+                    aliases=aliases,
                     video_ids=[item.video.youtube_video_id],
                     languages=languages,
                     limit=1,
@@ -142,6 +161,8 @@ def reconcile_keyword_search_jobs(session: Session) -> int:
                         "seek_seconds": hit.start_ms / 1000,
                         "text": hit.text,
                         "score": hit.score,
+                        "matched_keywords": list(hit.matched_keywords),
+                        "highlighted_text": hit.highlighted_text,
                     }
                     for hit in hits
                 ]
