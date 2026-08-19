@@ -183,6 +183,33 @@ def test_search_returns_matched_keywords_and_highlight() -> None:
     assert hits[0].highlighted_text == "人工<mark>智慧</mark>"
 
 
+def test_search_generates_highlight_when_opensearch_returns_no_fragment() -> None:
+    client = _SearchClient()
+    client.search = lambda **kwargs: {
+        "hits": {
+            "hits": [
+                {
+                    "_source": {
+                        "video_id": "video-1",
+                        "title": "Example",
+                        "language": "zh-TW",
+                        "start_ms": 100,
+                        "end_ms": 200,
+                        "text_zh": "剛臘腸狗那邊",
+                    }
+                }
+            ]
+        }
+    }
+    indexer = OpenSearchSubtitleIndexer(
+        client, index_name="subtitle-segments-v1", index_alias="subtitle-segments"
+    )
+
+    hits = indexer.search("臘腸狗")
+
+    assert hits[0].highlighted_text == "剛<mark>臘腸狗</mark>那邊"
+
+
 def test_search_can_be_restricted_to_configured_languages() -> None:
     client = _SearchClient()
     indexer = OpenSearchSubtitleIndexer(

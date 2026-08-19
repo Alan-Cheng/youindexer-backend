@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from html import escape
+import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -50,6 +52,38 @@ def _client(config: Settings) -> OpenSearch:
 def _segment_zh(text: str) -> str:
     """Create whitespace-delimited tokens for OpenSearch's standard analyzer."""
     return " ".join(token for token in jieba.lcut_for_search(text) if token.strip())
+
+
+def _fallback_highlight(text: str, terms: list[str]) -> str | None:
+    """Highlight searchable terms when OpenSearch returns no fragment."""
+    tokens = {
+        term.strip()
+        for term in terms
+        if term.strip()
+    }
+    tokens.update(
+        token
+        for term in terms
+        for token in _segment_zh(term).split()
+        if token.strip()
+    )
+    if not tokens:
+        return None
+    pattern = re.compile(
+        "|".join(re.escape(token) for token in sorted(tokens, key=len, reverse=True)),
+        re.IGNORECASE,
+    )
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return None
+    parts: list[str] = []
+    position = 0
+    for match in matches:
+        parts.append(escape(text[position : match.start()]))
+        parts.append(f"<mark>{escape(match.group())}</mark>")
+        position = match.end()
+    parts.append(escape(text[position:]))
+    return "".join(parts)
 
 
 INDEX_BODY: dict[str, Any] = {
@@ -316,6 +350,8 @@ class OpenSearchSubtitleIndexer:
                     ),
                     None,
                 )
+                if highlighted_text is None:
+                    highlighted_text = _fallback_highlight(text, search_terms)
                 results.append(
                     SubtitleSearchHit(
                         video_id=source["video_id"],

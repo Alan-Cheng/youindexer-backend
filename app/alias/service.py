@@ -88,3 +88,13 @@ async def get_aliases(text: str) -> list[str]:
             values.append(value)
             seen.add(key)
     return values[:10]
+
+
+async def get_search_terms(text: str) -> list[str]:
+    """Return LLM aliases, falling back to the original search text."""
+    try:
+        aliases = await get_aliases(text)
+    except AliasServiceError:
+        logger.warning("Alias generation failed; using the original search text")
+        return [text]
+    return aliases or [text]

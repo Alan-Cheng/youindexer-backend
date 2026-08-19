@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-import logging
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.alias.service import AliasServiceError, get_aliases
+from app.alias.service import get_search_terms
 from app.database.models import (
     KeywordSearchJob,
     KeywordSearchJobVideo,
@@ -21,8 +20,6 @@ from app.system_config.service import get_default_subtitle_languages
 from app.transcription.storage import MinioSubtitleStorage
 from app.youtube.repository import get_video_index_state
 from app.youtube.search import YouTubeSearchResult
-
-logger = logging.getLogger(__name__)
 
 
 def create_keyword_search_job(
@@ -83,14 +80,10 @@ def _finished(state) -> bool:
     return True
 
 
-def _search_aliases(query: str) -> list[str]:
-    """Get aliases once per job; search still works if the alias service is unavailable."""
-    try:
-        aliases = asyncio.run(get_aliases(query))
-    except AliasServiceError as exc:
-        logger.warning("Alias generation failed for keyword search %r: %s", query, exc)
-        return []
-    return list(dict.fromkeys(alias.strip() for alias in aliases if alias.strip()))
+def _search_terms(query: str) -> list[str]:
+    """Get search terms once per job, falling back to the original query."""
+    terms = asyncio.run(get_search_terms(query))
+    return list(dict.fromkeys(term.strip() for term in terms if term.strip()))
 
 
 def reconcile_keyword_search_jobs(session: Session) -> int:
@@ -142,7 +135,7 @@ def reconcile_keyword_search_jobs(session: Session) -> int:
                 continue
             try:
                 if aliases is None:
-                    aliases = _search_aliases(job.query)
+                    aliases = _search_terms(job.query)
                 hits = indexer.search(
                     job.query,
                     aliases=aliases,

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import StreamingResponse
 
-from app.alias.service import AliasServiceError, get_aliases
+from app.alias.service import get_search_terms
 from app.database.session import SessionLocal
 from app.system_config.service import (
     get_default_subtitle_languages,
@@ -493,10 +493,7 @@ async def search_subtitles(
             detail="q must not be blank",
         )
     try:
-        try:
-            aliases = await get_aliases(normalized_query)
-        except AliasServiceError:
-            aliases = []
+        aliases = await get_search_terms(normalized_query)
         indexer = OpenSearchSubtitleIndexer.from_settings()
         if language is not None:
             hits = await asyncio.to_thread(

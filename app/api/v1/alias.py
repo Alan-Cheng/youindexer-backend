@@ -17,6 +17,7 @@ class AliasRequest(BaseModel):
 class AliasResponse(BaseModel):
     text: str
     aliases: list[str]
+    llm_aliases_available: bool
 
 
 @router.post("/aliases", response_model=AliasResponse)
@@ -30,9 +31,20 @@ async def generate_aliases(payload: AliasRequest) -> AliasResponse:
         )
     try:
         aliases = await get_aliases(normalized)
-    except AliasServiceError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
-        ) from exc
-    return AliasResponse(text=normalized, aliases=aliases)
+    except AliasServiceError:
+        return AliasResponse(
+            text=normalized,
+            aliases=[normalized],
+            llm_aliases_available=False,
+        )
+    if not aliases:
+        return AliasResponse(
+            text=normalized,
+            aliases=[normalized],
+            llm_aliases_available=False,
+        )
+    return AliasResponse(
+        text=normalized,
+        aliases=aliases,
+        llm_aliases_available=True,
+    )
