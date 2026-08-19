@@ -6,16 +6,23 @@ dependencies = [
     "alembic>=1.19.1",
     "celery>=5.6.3",
     "fastapi>=0.141.1",
+    "google-genai>=1.0.0",
+    "jieba>=0.42.1",
+    "minio>=7.2.20",
+    "opensearch-py>=3.0.0",
     "playwright>=1.62.0",
     "psycopg[binary]>=3.3.4",
     "pydantic>=2.13.4",
+    "python-dotenv>=1.2.1",
     "redis>=8.1.0",
     "sqlalchemy>=2.0.52",
     "uvicorn[standard]>=0.52.3",
+    "yt-dlp[default]>=2026.7.4",
 ]
 
 [project.scripts]
 youtube-search = "app.youtube.cli:main"
+youtube-suggestions = "app.youtube.suggestions_cli:main"
 
 [build-system]
 requires = ["setuptools>=80"]
