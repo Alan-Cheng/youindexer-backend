@@ -2,16 +2,19 @@
 
 import asyncio
 import json
+import logging
 from dataclasses import asdict
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import StreamingResponse
 
 from app.alias.service import get_search_terms
+from app.auth.dependencies import get_optional_user
+from app.database.models import User
 from app.database.session import SessionLocal
 from app.system_config.service import (
     get_default_subtitle_languages,
@@ -36,6 +39,7 @@ from app.youtube.keyword_jobs import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class YouTubeVideoResponse(BaseModel):
@@ -179,16 +183,30 @@ def _create_keyword_job(
     requested_count: int,
     matches_per_video: int,
     results: list,
+    user_id: int | None = None,
 ) -> str:
+    logger.info(
+        "creating keyword search job query=%r user_id=%s result_count=%s",
+        query,
+        user_id,
+        len(results),
+    )
     with SessionLocal() as session:
-        return create_keyword_search_job(
+        task_id = create_keyword_search_job(
             session,
             query=query,
             locale=locale,
             requested_count=requested_count,
             matches_per_video=matches_per_video,
             results=results,
+            user_id=user_id,
         )
+        logger.info(
+            "created keyword search job task_id=%s user_id=%s",
+            task_id,
+            user_id,
+        )
+        return task_id
 
 
 def _get_keyword_job(task_id: str) -> dict | None:
@@ -327,8 +345,14 @@ async def youtube_search(
 )
 async def create_keyword_search(
     payload: KeywordSearchJobRequest,
+    current_user: User | None = Depends(get_optional_user),
 ) -> KeywordSearchJobResponse:
     """Create a durable search job after all selected metadata is available."""
+    logger.info(
+        "search-job request query=%r authenticated_user_id=%s",
+        payload.query,
+        current_user.id if current_user is not None else None,
+    )
     query = payload.query.strip()
     if not query:
         raise HTTPException(
@@ -357,6 +381,7 @@ async def create_keyword_search(
             requested_count=video_count,
             matches_per_video=payload.matches_per_video,
             results=results,
+            user_id=current_user.id if current_user is not None else None,
         )
         snapshot = await asyncio.to_thread(_get_keyword_job, task_id)
     except YouTubeSearchError as exc:
