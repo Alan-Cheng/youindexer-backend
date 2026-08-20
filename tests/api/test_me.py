@@ -24,6 +24,16 @@ class _ASGIClient:
 
         return asyncio.run(request())
 
+    def delete(self, path: str, *, headers: dict | None = None) -> httpx.Response:
+        async def request() -> httpx.Response:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                return await client.delete(path, headers=headers)
+
+        return asyncio.run(request())
+
 
 client = _ASGIClient()
 
@@ -107,3 +117,51 @@ def test_list_search_history_returns_only_user_jobs(db_session) -> None:
 def test_list_search_history_requires_authentication() -> None:
     response = client.get("/api/v1/me/search-history")
     assert response.status_code == 401
+
+
+def test_delete_search_history_item_is_scoped_to_current_user(db_session) -> None:
+    user = User(
+        google_subject="delete-history-subject",
+        email="delete-history@example.com",
+        display_name="Delete History User",
+    )
+    other_user = User(
+        google_subject="delete-other-subject",
+        email="delete-other@example.com",
+        display_name="Other User",
+    )
+    db_session.add_all([user, other_user])
+    db_session.flush()
+
+    user_job = KeywordSearchJob(
+        user_id=user.id,
+        query="delete me",
+        locale="zh-TW",
+        requested_count=1,
+        matches_per_video=5,
+        status="completed",
+    )
+    other_job = KeywordSearchJob(
+        user_id=other_user.id,
+        query="do not delete",
+        locale="zh-TW",
+        requested_count=1,
+        matches_per_video=5,
+        status="completed",
+    )
+    db_session.add_all([user_job, other_job])
+    db_session.commit()
+
+    tokens = create_token_pair(user.id)
+    app.dependency_overrides[get_session] = lambda: db_session
+    headers = {"Authorization": f"Bearer {tokens.access_token}"}
+
+    response = client.delete(f"/api/v1/me/search-history/{user_job.id}", headers=headers)
+    other_response = client.delete(
+        f"/api/v1/me/search-history/{other_job.id}", headers=headers
+    )
+
+    assert response.status_code == 204
+    assert other_response.status_code == 404
+    assert db_session.get(KeywordSearchJob, user_job.id) is None
+    assert db_session.get(KeywordSearchJob, other_job.id) is not None

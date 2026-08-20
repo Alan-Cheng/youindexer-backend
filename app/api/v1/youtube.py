@@ -107,6 +107,7 @@ class KeywordSearchJobRequest(BaseModel):
     locale: str = Field(
         default="zh-TW", pattern=r"^[A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?$"
     )
+    video_count: int | None = Field(default=None, ge=1, le=100)
     matches_per_video: int = Field(default=5, ge=1, le=20)
 
 
@@ -359,8 +360,15 @@ async def create_keyword_search(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="query must not be blank",
         )
+    if payload.video_count is not None and current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="authentication is required to set video_count",
+        )
     try:
-        video_count = await asyncio.to_thread(_configured_stream_limit)
+        video_count = payload.video_count
+        if video_count is None:
+            video_count = await asyncio.to_thread(_configured_stream_limit)
         results = await asyncio.to_thread(
             search_youtube,
             query,

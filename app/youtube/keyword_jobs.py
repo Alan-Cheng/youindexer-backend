@@ -81,6 +81,22 @@ def create_keyword_search_job(
     return job.id
 
 
+def delete_user_search_job(session: Session, *, user_id: int, task_id: str) -> bool:
+    """Delete a search job owned by the given user and its per-video results."""
+    job = session.scalar(
+        select(KeywordSearchJob).where(
+            KeywordSearchJob.id == task_id,
+            KeywordSearchJob.user_id == user_id,
+        )
+    )
+    if job is None:
+        return False
+
+    session.delete(job)
+    session.commit()
+    return True
+
+
 def _finished(state) -> bool:
     if state is None or not state.transcripts:
         return False

@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
@@ -14,7 +14,7 @@ from starlette.responses import StreamingResponse
 from app.auth.dependencies import get_current_user
 from app.database.models import KeywordSearchJob, User
 from app.database.session import SessionLocal, get_session
-from app.youtube.keyword_jobs import get_user_search_history
+from app.youtube.keyword_jobs import delete_user_search_job, get_user_search_history
 
 router = APIRouter()
 
@@ -111,6 +111,22 @@ async def list_search_history(
         limit=limit,
         offset=offset,
     )
+
+
+@router.delete("/me/search-history/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_search_history_item(
+    task_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_session)],
+) -> None:
+    """Delete one search job belonging to the current user."""
+    if not delete_user_search_job(
+        session, user_id=current_user.id, task_id=task_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="search history item not found",
+        )
 
 
 @router.get("/me/search-history/events")
