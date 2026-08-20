@@ -11,6 +11,9 @@ from app.api.v1.youtube import (
     keyword_search_job,
     keyword_search_job_events,
 )
+from app.auth.service import create_token_pair
+from app.database.models import User
+from app.database.session import get_session
 from app.main import app
 from app.youtube import YouTubeSearchError, YouTubeSearchResult, YouTubeSuggestionError
 
@@ -25,6 +28,22 @@ class _ASGIClient:
                 transport=transport, base_url="http://testserver"
             ) as client:
                 return await client.get(path, params=params)
+
+        return asyncio.run(request())
+
+    def post(
+        self,
+        path: str,
+        *,
+        json: dict | None = None,
+        headers: dict | None = None,
+    ) -> httpx.Response:
+        async def request() -> httpx.Response:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                return await client.post(path, json=json, headers=headers)
 
         return asyncio.run(request())
 
@@ -55,7 +74,7 @@ def test_youtube_suggestions_uses_headless_browser(monkeypatch) -> None:
 
     monkeypatch.setattr("app.api.v1.youtube.get_youtube_suggestions", fake_suggestions)
     response = client.get(
-        "/api/v1/youtube/suggestions",
+        "/api/v1/youtube/keyword-suggestions",
         params={"q": " python ", "limit": 5, "locale": "en-US", "timeout_ms": 45000},
     )
 
@@ -75,7 +94,7 @@ def test_youtube_suggestions_uses_headless_browser(monkeypatch) -> None:
 
 
 def test_youtube_suggestions_rejects_blank_query() -> None:
-    response = client.get("/api/v1/youtube/suggestions", params={"q": "   "})
+    response = client.get("/api/v1/youtube/keyword-suggestions", params={"q": "   "})
     assert response.status_code == 422
 
 
@@ -84,7 +103,7 @@ def test_youtube_suggestions_maps_failure_to_bad_gateway(monkeypatch) -> None:
         raise YouTubeSuggestionError("YouTube suggestions unavailable")
 
     monkeypatch.setattr("app.api.v1.youtube.get_youtube_suggestions", fake_suggestions)
-    response = client.get("/api/v1/youtube/suggestions", params={"q": "python"})
+    response = client.get("/api/v1/youtube/keyword-suggestions", params={"q": "python"})
 
     assert response.status_code == 502
     assert response.json() == {"detail": "YouTube suggestions unavailable"}
@@ -115,7 +134,7 @@ def test_youtube_search_uses_headless_browser(monkeypatch) -> None:
     monkeypatch.setattr("app.api.v1.youtube.search_youtube", fake_search)
     monkeypatch.setattr("app.api.v1.youtube._save_search", _ignore_search_persistence)
     response = client.get(
-        "/api/v1/youtube/search",
+        "/api/v1/youtube/search-metadata",
         params={
             "q": " Playwright ",
             "limit": 3,
@@ -138,7 +157,7 @@ def test_youtube_search_uses_headless_browser(monkeypatch) -> None:
 
 def test_youtube_search_rejects_invalid_limit() -> None:
     response = client.get(
-        "/api/v1/youtube/search",
+        "/api/v1/youtube/search-metadata",
         params={"q": "Playwright", "limit": 101},
     )
     assert response.status_code == 422
@@ -146,7 +165,7 @@ def test_youtube_search_rejects_invalid_limit() -> None:
 
 def test_youtube_search_rejects_blank_query() -> None:
     response = client.get(
-        "/api/v1/youtube/search",
+        "/api/v1/youtube/search-metadata",
         params={"q": "   "},
     )
     assert response.status_code == 422
@@ -158,7 +177,7 @@ def test_youtube_search_maps_playwright_failure_to_bad_gateway(monkeypatch) -> N
 
     monkeypatch.setattr("app.api.v1.youtube.search_youtube", fake_search)
     response = client.get(
-        "/api/v1/youtube/search",
+        "/api/v1/youtube/search-metadata",
         params={"q": "Playwright"},
     )
 
@@ -206,7 +225,8 @@ def test_create_keyword_job_returns_all_metadata_as_loading(monkeypatch) -> None
 
     response = asyncio.run(
         create_keyword_search(
-            KeywordSearchJobRequest(query=" robot ", matches_per_video=5)
+            KeywordSearchJobRequest(query=" robot ", matches_per_video=5),
+            current_user=None,
         )
     )
 
@@ -214,6 +234,56 @@ def test_create_keyword_job_returns_all_metadata_as_loading(monkeypatch) -> None
     assert response.video_count == 1
     assert response.videos["abc123"].status == "loading"
     assert response.videos["abc123"].metadata.title == "Playwright 教學"
+
+
+def test_create_keyword_job_passes_authenticated_user_id(
+    monkeypatch, db_session
+) -> None:
+    user = User(
+        google_subject="search-job-auth-subject",
+        email="search-job-auth@example.com",
+        display_name="Search Job User",
+    )
+    db_session.add(user)
+    db_session.commit()
+    tokens = create_token_pair(user.id)
+    received: dict[str, object] = {}
+    snapshot = _job_snapshot()
+
+    monkeypatch.setattr("app.api.v1.youtube._configured_stream_limit", lambda: 1)
+    monkeypatch.setattr("app.api.v1.youtube.search_youtube", lambda *a, **k: [sample_result()])
+    monkeypatch.setattr("app.api.v1.youtube._save_search", lambda *a, **k: None)
+    monkeypatch.setattr("app.api.v1.youtube._request_index", lambda *a, **k: None)
+
+    def fake_create_keyword_job(**kwargs):
+        received.update(kwargs)
+        return "task-123"
+
+    monkeypatch.setattr("app.api.v1.youtube._create_keyword_job", fake_create_keyword_job)
+    monkeypatch.setattr("app.api.v1.youtube._get_keyword_job", lambda task_id: snapshot)
+    app.dependency_overrides[get_session] = lambda: db_session
+
+    try:
+        response = client.post(
+            "/api/v1/youtube/search-jobs",
+            json={"query": "robot", "matches_per_video": 5},
+            headers={"Authorization": f"Bearer {tokens.access_token}"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+
+    assert response.status_code == 201
+    assert received["user_id"] == user.id
+
+
+def test_search_job_rejects_invalid_bearer_token() -> None:
+    response = client.post(
+        "/api/v1/youtube/search-jobs",
+        json={"query": "robot", "matches_per_video": 5},
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert response.status_code == 401
 
 
 def test_job_api_and_sse_snapshot_share_response_body(monkeypatch) -> None:

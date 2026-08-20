@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -25,12 +25,21 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.session import Base
 from app.database.models.youtube import YouTubeVideo
 
+if TYPE_CHECKING:
+    from app.database.models.user import User
+
 
 class KeywordSearchJob(Base):
     __tablename__ = "keyword_search_jobs"
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="建立任務的使用者",
     )
     query: Mapped[str] = mapped_column(String(200))
     locale: Mapped[str] = mapped_column(String(20))
@@ -46,6 +55,7 @@ class KeywordSearchJob(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    user: Mapped[User | None] = relationship(back_populates="search_jobs")
     videos: Mapped[list[KeywordSearchJobVideo]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
@@ -55,6 +65,7 @@ class KeywordSearchJob(Base):
         CheckConstraint("matches_per_video > 0"),
         CheckConstraint("status IN ('processing','completed','failed')"),
         Index("ix_keyword_search_jobs_status", "status"),
+        Index("ix_keyword_search_jobs_user_id", "user_id"),
     )
 
 

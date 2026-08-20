@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.alias.service import get_search_terms
@@ -21,6 +22,8 @@ from app.transcription.storage import MinioSubtitleStorage
 from app.youtube.repository import get_video_index_state
 from app.youtube.search import YouTubeSearchResult
 
+logger = logging.getLogger(__name__)
+
 
 def create_keyword_search_job(
     session: Session,
@@ -30,7 +33,14 @@ def create_keyword_search_job(
     requested_count: int,
     matches_per_video: int,
     results: list[YouTubeSearchResult],
+    user_id: int | None = None,
 ) -> str:
+    logger.info(
+        "persisting keyword search job user_id=%s query=%r result_count=%s",
+        user_id,
+        query,
+        len(results),
+    )
     videos = {
         video.youtube_video_id: video
         for video in session.scalars(
@@ -40,6 +50,7 @@ def create_keyword_search_job(
         )
     }
     job = KeywordSearchJob(
+        user_id=user_id,
         query=query,
         locale=locale,
         requested_count=requested_count,
@@ -62,6 +73,11 @@ def create_keyword_search_job(
         job.status = "completed"
         job.completed_at = datetime.now(UTC)
     session.commit()
+    logger.info(
+        "persisted keyword search job task_id=%s user_id=%s",
+        job.id,
+        job.user_id,
+    )
     return job.id
 
 
@@ -170,6 +186,32 @@ def reconcile_keyword_search_jobs(session: Session) -> int:
             job.completed_at = now
     session.commit()
     return changed
+
+
+def get_user_search_history(
+    session: Session,
+    *,
+    user_id: int,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[KeywordSearchJob], int]:
+    """Return a user's keyword-search jobs ordered by newest first."""
+    total = session.scalar(
+        select(func.count())
+        .select_from(KeywordSearchJob)
+        .where(KeywordSearchJob.user_id == user_id)
+    )
+    jobs = list(
+        session.scalars(
+            select(KeywordSearchJob)
+            .where(KeywordSearchJob.user_id == user_id)
+            .options(selectinload(KeywordSearchJob.videos))
+            .order_by(KeywordSearchJob.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    )
+    return jobs, total or 0
 
 
 def get_keyword_search_job_snapshot(session: Session, job_id: str) -> dict | None:
