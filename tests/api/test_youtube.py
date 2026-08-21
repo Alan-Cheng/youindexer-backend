@@ -106,7 +106,9 @@ def test_youtube_suggestions_maps_failure_to_bad_gateway(monkeypatch) -> None:
     response = client.get("/api/v1/youtube/keyword-suggestions", params={"q": "python"})
 
     assert response.status_code == 502
-    assert response.json() == {"detail": "YouTube suggestions unavailable"}
+    body = response.json()
+    assert body["success"] is False
+    assert body["message"] == "YouTube suggestions unavailable"
 
 
 def sample_result() -> YouTubeSearchResult:
@@ -182,7 +184,9 @@ def test_youtube_search_maps_playwright_failure_to_bad_gateway(monkeypatch) -> N
     )
 
     assert response.status_code == 502
-    assert response.json() == {"detail": "YouTube unavailable"}
+    body = response.json()
+    assert body["success"] is False
+    assert body["message"] == "YouTube unavailable"
 
 
 def _job_snapshot(*, status: str = "processing") -> dict:

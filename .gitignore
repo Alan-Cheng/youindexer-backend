@@ -6,3 +6,9 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 .omo/
+
+# Playwright storage_state files (logged-in session cookies for the
+# Instagram/Threads crawler) must never be committed -- see
+# scripts/save_login_session.py and app/config.py.
+*storage_state*.json
+/out/

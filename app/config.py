@@ -60,5 +60,11 @@ class Settings(BaseModel):
         os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7")
     )
 
+    # Optional Playwright storage_state files (logged-in session cookies) for
+    # the Instagram/Threads crawlers. Left unset, both crawlers stay anonymous.
+    # Never commit these files; inject them as a secret at deploy time.
+    instagram_storage_state_path: str | None = os.getenv("INSTAGRAM_STORAGE_STATE_PATH")
+    threads_storage_state_path: str | None = os.getenv("THREADS_STORAGE_STATE_PATH")
+
 
 settings = Settings()
