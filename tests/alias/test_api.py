@@ -12,8 +12,8 @@ def test_alias_api_reports_llm_aliases(monkeypatch) -> None:
 
     response = asyncio.run(generate_aliases(AliasRequest(text="人工智慧")))
 
-    assert response.aliases == ["AI", "artificial intelligence"]
-    assert response.llm_aliases_available is True
+    assert response.data.aliases == ["AI", "artificial intelligence"]
+    assert response.data.llm_aliases_available is True
 
 
 def test_alias_api_falls_back_when_llm_fails(monkeypatch) -> None:
@@ -24,8 +24,8 @@ def test_alias_api_falls_back_when_llm_fails(monkeypatch) -> None:
 
     response = asyncio.run(generate_aliases(AliasRequest(text="人工智慧")))
 
-    assert response.aliases == ["人工智慧"]
-    assert response.llm_aliases_available is False
+    assert response.data.aliases == ["人工智慧"]
+    assert response.data.llm_aliases_available is False
 
 
 def test_alias_api_falls_back_when_llm_returns_empty(monkeypatch) -> None:
@@ -36,5 +36,5 @@ def test_alias_api_falls_back_when_llm_returns_empty(monkeypatch) -> None:
 
     response = asyncio.run(generate_aliases(AliasRequest(text="人工智慧")))
 
-    assert response.aliases == ["人工智慧"]
-    assert response.llm_aliases_available is False
+    assert response.data.aliases == ["人工智慧"]
+    assert response.data.llm_aliases_available is False

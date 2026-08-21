@@ -19,17 +19,18 @@ from app.auth.schemas import (
     UserResponse,
 )
 from app.auth.service import verify_refresh_token
+from app.core.response import APIResponse
 from app.database.models import User
 from app.database.session import get_session
 
 router = APIRouter()
 
 
-@router.get("/auth/google/login", response_model=GoogleLoginUrlResponse)
+@router.get("/auth/google/login", response_model=APIResponse[GoogleLoginUrlResponse])
 async def google_login(
     redirect_uri: str | None = None,
     state: str | None = None,
-) -> GoogleLoginUrlResponse:
+) -> APIResponse[GoogleLoginUrlResponse]:
     """Return the Google OAuth2 consent URL.
 
     The frontend redirects the user to this URL. After consent, Google redirects
@@ -42,14 +43,14 @@ async def google_login(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
-    return GoogleLoginUrlResponse(authorization_url=url)
+    return APIResponse.ok(GoogleLoginUrlResponse(authorization_url=url))
 
 
-@router.post("/auth/google/callback", response_model=TokenResponse)
+@router.post("/auth/google/callback", response_model=APIResponse[TokenResponse])
 async def google_callback(
     payload: GoogleCallbackRequest,
     session: Annotated[Session, Depends(get_session)],
-) -> TokenResponse:
+) -> APIResponse[TokenResponse]:
     """Exchange a Google authorization code for local JWT tokens."""
     try:
         userinfo = await exchange_google_code(
@@ -74,14 +75,14 @@ async def google_callback(
         email=userinfo.get("email") if isinstance(userinfo.get("email"), str) else None,
         display_name=userinfo.get("name") if isinstance(userinfo.get("name"), str) else None,
     )
-    return create_token_pair(user.id)
+    return APIResponse.ok(create_token_pair(user.id))
 
 
-@router.post("/auth/refresh", response_model=TokenResponse)
+@router.post("/auth/refresh", response_model=APIResponse[TokenResponse])
 async def refresh_token(
     payload: RefreshTokenRequest,
     session: Annotated[Session, Depends(get_session)],
-) -> TokenResponse:
+) -> APIResponse[TokenResponse]:
     """Issue a new access/refresh token pair from a valid refresh token."""
     try:
         user_id = verify_refresh_token(payload.refresh_token)
@@ -99,18 +100,20 @@ async def refresh_token(
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return create_token_pair(user.id)
+    return APIResponse.ok(create_token_pair(user.id))
 
 
-@router.get("/me", response_model=UserResponse)
-async def get_me(current_user: Annotated[User, Depends(get_current_user)]) -> User:
+@router.get("/me", response_model=APIResponse[UserResponse])
+async def get_me(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> APIResponse[UserResponse]:
     """Return the currently authenticated user's profile."""
-    return current_user
+    return APIResponse.ok(UserResponse.model_validate(current_user))
 
 
-@router.get("/auth/verify", response_model=UserResponse)
+@router.get("/auth/verify", response_model=APIResponse[UserResponse])
 async def verify_current_user(
     current_user: Annotated[User, Depends(get_current_user)],
-) -> User:
+) -> APIResponse[UserResponse]:
     """Debug helper: confirm that the provided Bearer token is valid."""
-    return current_user
+    return APIResponse.ok(UserResponse.model_validate(current_user))

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.alias.service import AliasServiceError, get_aliases
+from app.core.response import APIResponse
 
 router = APIRouter()
 
@@ -20,8 +21,8 @@ class AliasResponse(BaseModel):
     llm_aliases_available: bool
 
 
-@router.post("/aliases", response_model=AliasResponse)
-async def generate_aliases(payload: AliasRequest) -> AliasResponse:
+@router.post("/aliases", response_model=APIResponse[AliasResponse])
+async def generate_aliases(payload: AliasRequest) -> APIResponse[AliasResponse]:
     """Generate possible aliases for the given text using Gemini."""
     normalized = payload.text.strip()
     if not normalized:
@@ -32,19 +33,25 @@ async def generate_aliases(payload: AliasRequest) -> AliasResponse:
     try:
         aliases = await get_aliases(normalized)
     except AliasServiceError:
-        return AliasResponse(
-            text=normalized,
-            aliases=[normalized],
-            llm_aliases_available=False,
+        return APIResponse.ok(
+            AliasResponse(
+                text=normalized,
+                aliases=[normalized],
+                llm_aliases_available=False,
+            )
         )
     if not aliases:
-        return AliasResponse(
-            text=normalized,
-            aliases=[normalized],
-            llm_aliases_available=False,
+        return APIResponse.ok(
+            AliasResponse(
+                text=normalized,
+                aliases=[normalized],
+                llm_aliases_available=False,
+            )
         )
-    return AliasResponse(
-        text=normalized,
-        aliases=aliases,
-        llm_aliases_available=True,
+    return APIResponse.ok(
+        AliasResponse(
+            text=normalized,
+            aliases=aliases,
+            llm_aliases_available=True,
+        )
     )

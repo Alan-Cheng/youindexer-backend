@@ -137,8 +137,11 @@ OpenSearch 實體 index 預設為 `subtitle-segments-v2`，API 與 Worker 透過
 POST /api/v1/youtube/search-jobs
 Content-Type: application/json
 
-{"query":"機器人","locale":"zh-TW","matches_per_video":5}
+{"query":"機器人","locale":"zh-TW","video_count":10,"matches_per_video":5}
 ```
+
+已登入使用者可指定 `video_count`，範圍為 1–100；未指定時使用
+`system_config.DEFAULT_YOUTUBE_VIDEO_RESULT_LIMIT`。未登入使用者不可指定此欄位。
 
 使用 task ID 可隨時取得持久化 snapshot，或訂閱相同 response body 的 SSE 更新：
 

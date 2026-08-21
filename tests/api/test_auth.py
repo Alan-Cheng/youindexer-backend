@@ -58,7 +58,7 @@ def test_google_login_returns_authorization_url(monkeypatch) -> None:
     response = client.get("/api/v1/auth/google/login")
 
     assert response.status_code == 200
-    data = response.json()
+    data = response.json()["data"]
     assert "accounts.google.com" in data["authorization_url"]
     assert "client_id=test-client-id" in data["authorization_url"]
 
@@ -85,7 +85,7 @@ def test_google_callback_exchanges_code_for_tokens(
     )
 
     assert response.status_code == 200
-    data = response.json()
+    data = response.json()["data"]
     assert data["token_type"] == "bearer"
     assert "access_token" in data
     assert "refresh_token" in data
@@ -115,7 +115,7 @@ def test_refresh_issues_new_tokens(monkeypatch, db_session) -> None:
     )
 
     assert response.status_code == 200
-    data = response.json()
+    data = response.json()["data"]
     assert "access_token" in data
     assert "refresh_token" in data
 
@@ -138,7 +138,7 @@ def test_me_returns_current_user(db_session) -> None:
     )
 
     assert response.status_code == 200
-    data = response.json()
+    data = response.json()["data"]
     assert data["id"] == user.id
     assert data["email"] == "me@example.com"
     assert data["display_name"] == "Me User"

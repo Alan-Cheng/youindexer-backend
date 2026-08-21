@@ -1,9 +1,11 @@
 import asyncio
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
 from app.api.v1.youtube import (
     KeywordSearchJobRequest,
@@ -86,7 +88,7 @@ def test_youtube_suggestions_uses_headless_browser(monkeypatch) -> None:
         "timeout_ms": 45000,
         "locale": "en-US",
     }
-    assert response.json() == {
+    assert response.json()["data"] == {
         "query": "python",
         "count": 2,
         "items": ["python tutorial", "python tutorial 中文"],
@@ -106,7 +108,9 @@ def test_youtube_suggestions_maps_failure_to_bad_gateway(monkeypatch) -> None:
     response = client.get("/api/v1/youtube/keyword-suggestions", params={"q": "python"})
 
     assert response.status_code == 502
-    assert response.json() == {"detail": "YouTube suggestions unavailable"}
+    body = response.json()
+    assert body["success"] is False
+    assert body["message"] == "YouTube suggestions unavailable"
 
 
 def sample_result() -> YouTubeSearchResult:
@@ -151,8 +155,8 @@ def test_youtube_search_uses_headless_browser(monkeypatch) -> None:
         "timeout_ms": 45000,
         "locale": "en-US",
     }
-    assert response.json()["count"] == 1
-    assert response.json()["items"][0]["video_id"] == "abc123"
+    assert response.json()["data"]["count"] == 1
+    assert response.json()["data"]["items"][0]["video_id"] == "abc123"
 
 
 def test_youtube_search_rejects_invalid_limit() -> None:
@@ -182,7 +186,9 @@ def test_youtube_search_maps_playwright_failure_to_bad_gateway(monkeypatch) -> N
     )
 
     assert response.status_code == 502
-    assert response.json() == {"detail": "YouTube unavailable"}
+    body = response.json()
+    assert body["success"] is False
+    assert body["message"] == "YouTube unavailable"
 
 
 def _job_snapshot(*, status: str = "processing") -> dict:
@@ -230,10 +236,53 @@ def test_create_keyword_job_returns_all_metadata_as_loading(monkeypatch) -> None
         )
     )
 
-    assert response.task_id == "task-123"
-    assert response.video_count == 1
-    assert response.videos["abc123"].status == "loading"
-    assert response.videos["abc123"].metadata.title == "Playwright 教學"
+    assert response.data.task_id == "task-123"
+    assert response.data.video_count == 1
+    assert response.data.videos["abc123"].status == "loading"
+    assert response.data.videos["abc123"].metadata.title == "Playwright 教學"
+
+
+def test_create_keyword_job_uses_requested_video_count(monkeypatch) -> None:
+    received: dict[str, object] = {}
+    snapshot = _job_snapshot()
+
+    monkeypatch.setattr(
+        "app.api.v1.youtube._configured_stream_limit",
+        lambda: (_ for _ in ()).throw(AssertionError("config should not be read")),
+    )
+
+    def fake_search(*args, **kwargs):
+        received["limit"] = args[1]
+        return [sample_result()]
+
+    monkeypatch.setattr("app.api.v1.youtube.search_youtube", fake_search)
+    monkeypatch.setattr("app.api.v1.youtube._save_search", lambda *a, **k: None)
+    monkeypatch.setattr("app.api.v1.youtube._request_index", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "app.api.v1.youtube._create_keyword_job", lambda **kwargs: "task-123"
+    )
+    monkeypatch.setattr("app.api.v1.youtube._get_keyword_job", lambda task_id: snapshot)
+
+    asyncio.run(
+        create_keyword_search(
+            KeywordSearchJobRequest(query="robot", video_count=12),
+            current_user=SimpleNamespace(id=1),
+        )
+    )
+
+    assert received["limit"] == 12
+
+
+def test_anonymous_user_cannot_set_video_count() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            create_keyword_search(
+                KeywordSearchJobRequest(query="robot", video_count=12),
+                current_user=None,
+            )
+        )
+
+    assert exc_info.value.status_code == 403
 
 
 def test_create_keyword_job_passes_authenticated_user_id(
@@ -303,4 +352,7 @@ def test_job_api_and_sse_snapshot_share_response_body(monkeypatch) -> None:
         if line.startswith("data: ")
     )
 
-    assert json.loads(data_line) == json.loads(api_response.model_dump_json())
+    # NOTE: the SSE endpoint is intentionally NOT wrapped in the APIResponse
+    # envelope (see docs/dev-docs/20260819-Yuki-ig-threads-public-crawler.md),
+    # so we compare against the wrapped GET response's inner `data` payload.
+    assert json.loads(data_line) == json.loads(api_response.data.model_dump_json())
