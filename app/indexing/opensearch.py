@@ -271,11 +271,42 @@ class OpenSearchSubtitleIndexer:
             if limit is not None
             else (len(normalized_video_ids) if video_ids is not None else 10)
         )
-        # Aliases are normalized search terms. Do not mix them with the raw query.
-        search_terms = list(dict.fromkeys(aliases or [query]))
+        search_terms = list(dict.fromkeys([query, *(aliases or [])]))
+        highlight_terms = search_terms
         named_terms = {
             f"keyword_{index}": term for index, term in enumerate(search_terms)
         }
+        named_terms.update(
+            {
+                f"token_{index}": term
+                for index, term in enumerate(search_terms)
+            }
+        )
+        should_queries: list[dict[str, Any]] = []
+        for index, term in enumerate(search_terms):
+            should_queries.append(
+                {
+                    "multi_match": {
+                        "_name": f"keyword_{index}",
+                        "query": term,
+                        "type": "phrase",
+                        "fields": fields,
+                        "boost": 10,
+                    }
+                }
+            )
+        for index, term in enumerate(search_terms):
+            should_queries.append(
+                {
+                    "multi_match": {
+                        "_name": f"token_{index}",
+                        "query": _segment_zh(term),
+                        "fields": fields,
+                        "operator": "and",
+                        "boost": 1,
+                    }
+                }
+            )
         body: dict[str, Any] = {
             "size": result_limit,
             "query": {
@@ -283,16 +314,7 @@ class OpenSearchSubtitleIndexer:
                     "must": [
                         {
                             "bool": {
-                                "should": [
-                                    {
-                                        "multi_match": {
-                                            "_name": name,
-                                            "query": _segment_zh(term),
-                                            "fields": fields,
-                                        }
-                                    }
-                                    for name, term in named_terms.items()
-                                ],
+                                "should": should_queries,
                                 "minimum_should_match": 1,
                             }
                         }
@@ -351,7 +373,7 @@ class OpenSearchSubtitleIndexer:
                     None,
                 )
                 if highlighted_text is None:
-                    highlighted_text = _fallback_highlight(text, search_terms)
+                    highlighted_text = _fallback_highlight(text, highlight_terms)
                 results.append(
                     SubtitleSearchHit(
                         video_id=source["video_id"],

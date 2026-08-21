@@ -1,9 +1,11 @@
 import asyncio
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
 from app.api.v1.youtube import (
     KeywordSearchJobRequest,
@@ -238,6 +240,49 @@ def test_create_keyword_job_returns_all_metadata_as_loading(monkeypatch) -> None
     assert response.video_count == 1
     assert response.videos["abc123"].status == "loading"
     assert response.videos["abc123"].metadata.title == "Playwright 教學"
+
+
+def test_create_keyword_job_uses_requested_video_count(monkeypatch) -> None:
+    received: dict[str, object] = {}
+    snapshot = _job_snapshot()
+
+    monkeypatch.setattr(
+        "app.api.v1.youtube._configured_stream_limit",
+        lambda: (_ for _ in ()).throw(AssertionError("config should not be read")),
+    )
+
+    def fake_search(*args, **kwargs):
+        received["limit"] = args[1]
+        return [sample_result()]
+
+    monkeypatch.setattr("app.api.v1.youtube.search_youtube", fake_search)
+    monkeypatch.setattr("app.api.v1.youtube._save_search", lambda *a, **k: None)
+    monkeypatch.setattr("app.api.v1.youtube._request_index", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "app.api.v1.youtube._create_keyword_job", lambda **kwargs: "task-123"
+    )
+    monkeypatch.setattr("app.api.v1.youtube._get_keyword_job", lambda task_id: snapshot)
+
+    asyncio.run(
+        create_keyword_search(
+            KeywordSearchJobRequest(query="robot", video_count=12),
+            current_user=SimpleNamespace(id=1),
+        )
+    )
+
+    assert received["limit"] == 12
+
+
+def test_anonymous_user_cannot_set_video_count() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            create_keyword_search(
+                KeywordSearchJobRequest(query="robot", video_count=12),
+                current_user=None,
+            )
+        )
+
+    assert exc_info.value.status_code == 403
 
 
 def test_create_keyword_job_passes_authenticated_user_id(
