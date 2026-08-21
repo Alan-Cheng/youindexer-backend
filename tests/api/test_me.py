@@ -106,7 +106,7 @@ def test_list_search_history_returns_only_user_jobs(db_session) -> None:
     )
 
     assert response.status_code == 200
-    data = response.json()
+    data = response.json()["data"]
     assert data["total"] == 1
     assert len(data["items"]) == 1
     assert data["items"][0]["task_id"] == user_job.id

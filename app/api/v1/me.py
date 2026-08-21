@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
 from app.auth.dependencies import get_current_user
+from app.core.response import APIResponse
 from app.database.models import KeywordSearchJob, User
 from app.database.session import SessionLocal, get_session
 from app.youtube.keyword_jobs import delete_user_search_job, get_user_search_history
@@ -97,19 +98,21 @@ def _load_history_response(
         )
 
 
-@router.get("/me/search-history", response_model=SearchHistoryListResponse)
+@router.get("/me/search-history", response_model=APIResponse[SearchHistoryListResponse])
 async def list_search_history(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> SearchHistoryListResponse:
+) -> APIResponse[SearchHistoryListResponse]:
     """Return the current user's keyword-search job history, newest first."""
-    return _history_response(
-        session,
-        user_id=current_user.id,
-        limit=limit,
-        offset=offset,
+    return APIResponse.ok(
+        _history_response(
+            session,
+            user_id=current_user.id,
+            limit=limit,
+            offset=offset,
+        )
     )
 
 

@@ -14,6 +14,7 @@ from starlette.responses import StreamingResponse
 
 from app.alias.service import get_search_terms
 from app.auth.dependencies import get_optional_user
+from app.core.response import APIResponse
 from app.database.models import User
 from app.database.session import SessionLocal
 from app.system_config.service import (
@@ -226,7 +227,7 @@ def _index_response(state: VideoIndexState) -> VideoIndexStatusResponse:
     )
 
 
-@router.get("/youtube/keyword-suggestions", response_model=YouTubeSuggestionsResponse)
+@router.get("/youtube/keyword-suggestions", response_model=APIResponse[YouTubeSuggestionsResponse])
 async def youtube_suggestions(
     q: Annotated[
         str,
@@ -246,7 +247,7 @@ async def youtube_suggestions(
         int,
         Query(ge=5_000, le=120_000, description="Browser timeout in milliseconds"),
     ] = 30_000,
-) -> YouTubeSuggestionsResponse:
+) -> APIResponse[YouTubeSuggestionsResponse]:
     """Return the suggestions displayed by YouTube's web search box."""
     normalized_query = q.strip()
     if not normalized_query:
@@ -270,14 +271,16 @@ async def youtube_suggestions(
             detail=str(exc),
         ) from exc
 
-    return YouTubeSuggestionsResponse(
-        query=normalized_query,
-        count=len(suggestions),
-        items=suggestions,
+    return APIResponse.ok(
+        YouTubeSuggestionsResponse(
+            query=normalized_query,
+            count=len(suggestions),
+            items=suggestions,
+        )
     )
 
 
-@router.get("/youtube/search-metadata", response_model=YouTubeSearchResponse)
+@router.get("/youtube/search-metadata", response_model=APIResponse[YouTubeSearchResponse])
 async def youtube_search(
     q: Annotated[
         str,
@@ -300,7 +303,7 @@ async def youtube_search(
         int,
         Query(ge=5_000, le=120_000, description="頁面等待逾時毫秒數"),
     ] = 30_000,
-) -> YouTubeSearchResponse:
+) -> APIResponse[YouTubeSearchResponse]:
     """Use anonymous headless Chromium to search YouTube."""
     normalized_query = q.strip()
     if not normalized_query:
@@ -332,22 +335,24 @@ async def youtube_search(
             detail="failed to save YouTube search results",
         ) from exc
 
-    return YouTubeSearchResponse(
-        query=normalized_query,
-        count=len(results),
-        items=[YouTubeVideoResponse(**result.as_dict()) for result in results],
+    return APIResponse.ok(
+        YouTubeSearchResponse(
+            query=normalized_query,
+            count=len(results),
+            items=[YouTubeVideoResponse(**result.as_dict()) for result in results],
+        )
     )
 
 
 @router.post(
     "/youtube/search-jobs",
-    response_model=KeywordSearchJobResponse,
+    response_model=APIResponse[KeywordSearchJobResponse],
     status_code=status.HTTP_201_CREATED,
 )
 async def create_keyword_search(
     payload: KeywordSearchJobRequest,
     current_user: User | None = Depends(get_optional_user),
-) -> KeywordSearchJobResponse:
+) -> APIResponse[KeywordSearchJobResponse]:
     """Create a durable search job after all selected metadata is available."""
     logger.info(
         "search-job request query=%r authenticated_user_id=%s",
@@ -402,13 +407,13 @@ async def create_keyword_search(
             detail="failed to create keyword search job",
         ) from exc
     assert snapshot is not None
-    return KeywordSearchJobResponse.model_validate(snapshot)
+    return APIResponse.ok(KeywordSearchJobResponse.model_validate(snapshot))
 
 
 @router.get(
-    "/youtube/search-jobs/{task_id}", response_model=KeywordSearchJobResponse
+    "/youtube/search-jobs/{task_id}", response_model=APIResponse[KeywordSearchJobResponse]
 )
-async def keyword_search_job(task_id: str) -> KeywordSearchJobResponse:
+async def keyword_search_job(task_id: str) -> APIResponse[KeywordSearchJobResponse]:
     """Return the latest durable snapshot for a keyword-search job."""
     try:
         snapshot = await asyncio.to_thread(_get_keyword_job, task_id)
@@ -418,7 +423,7 @@ async def keyword_search_job(task_id: str) -> KeywordSearchJobResponse:
         ) from exc
     if snapshot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
-    return KeywordSearchJobResponse.model_validate(snapshot)
+    return APIResponse.ok(KeywordSearchJobResponse.model_validate(snapshot))
 
 
 @router.get("/youtube/search-jobs/{task_id}/events")
@@ -470,10 +475,10 @@ async def keyword_search_job_events(task_id: str):
 
 @router.post(
     "/youtube/videos/{video_id}/index",
-    response_model=VideoIndexStatusResponse,
+    response_model=APIResponse[VideoIndexStatusResponse],
     status_code=status.HTTP_202_ACCEPTED,
 )
-async def create_video_index(video_id: str) -> VideoIndexStatusResponse:
+async def create_video_index(video_id: str) -> APIResponse[VideoIndexStatusResponse]:
     """Durably request subtitle retrieval and indexing for a discovered video."""
     try:
         state = await asyncio.to_thread(_request_index, video_id)
@@ -487,14 +492,14 @@ async def create_video_index(video_id: str) -> VideoIndexStatusResponse:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="video must be discovered through YouTube search first",
         )
-    return _index_response(state)
+    return APIResponse.ok(_index_response(state))
 
 
 @router.get(
     "/youtube/videos/{video_id}/index",
-    response_model=VideoIndexStatusResponse,
+    response_model=APIResponse[VideoIndexStatusResponse],
 )
-async def video_index_status(video_id: str) -> VideoIndexStatusResponse:
+async def video_index_status(video_id: str) -> APIResponse[VideoIndexStatusResponse]:
     """Return durable transcription and OpenSearch indexing progress."""
     try:
         state = await asyncio.to_thread(_get_index_state, video_id)
@@ -507,15 +512,15 @@ async def video_index_status(video_id: str) -> VideoIndexStatusResponse:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="video not found"
         )
-    return _index_response(state)
+    return APIResponse.ok(_index_response(state))
 
 
-@router.get("/youtube/subtitles/search", response_model=SubtitleSearchResponse)
+@router.get("/youtube/subtitles/search", response_model=APIResponse[SubtitleSearchResponse])
 async def search_subtitles(
     q: Annotated[str, Query(min_length=1, max_length=200)],
     language: Annotated[str | None, Query(pattern=r"^(zh-TW|en)$")] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 10,
-) -> SubtitleSearchResponse:
+) -> APIResponse[SubtitleSearchResponse]:
     """Search indexed subtitle segments and return their exact timestamp range."""
     from app.indexing import OpenSearchSubtitleIndexer, SubtitleIndexError
 
@@ -563,4 +568,6 @@ async def search_subtitles(
         )
         for hit in hits
     ]
-    return SubtitleSearchResponse(query=normalized_query, count=len(items), items=items)
+    return APIResponse.ok(
+        SubtitleSearchResponse(query=normalized_query, count=len(items), items=items)
+    )

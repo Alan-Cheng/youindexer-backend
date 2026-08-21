@@ -88,7 +88,7 @@ def test_youtube_suggestions_uses_headless_browser(monkeypatch) -> None:
         "timeout_ms": 45000,
         "locale": "en-US",
     }
-    assert response.json() == {
+    assert response.json()["data"] == {
         "query": "python",
         "count": 2,
         "items": ["python tutorial", "python tutorial 中文"],
@@ -155,8 +155,8 @@ def test_youtube_search_uses_headless_browser(monkeypatch) -> None:
         "timeout_ms": 45000,
         "locale": "en-US",
     }
-    assert response.json()["count"] == 1
-    assert response.json()["items"][0]["video_id"] == "abc123"
+    assert response.json()["data"]["count"] == 1
+    assert response.json()["data"]["items"][0]["video_id"] == "abc123"
 
 
 def test_youtube_search_rejects_invalid_limit() -> None:
@@ -236,10 +236,10 @@ def test_create_keyword_job_returns_all_metadata_as_loading(monkeypatch) -> None
         )
     )
 
-    assert response.task_id == "task-123"
-    assert response.video_count == 1
-    assert response.videos["abc123"].status == "loading"
-    assert response.videos["abc123"].metadata.title == "Playwright 教學"
+    assert response.data.task_id == "task-123"
+    assert response.data.video_count == 1
+    assert response.data.videos["abc123"].status == "loading"
+    assert response.data.videos["abc123"].metadata.title == "Playwright 教學"
 
 
 def test_create_keyword_job_uses_requested_video_count(monkeypatch) -> None:
@@ -352,4 +352,7 @@ def test_job_api_and_sse_snapshot_share_response_body(monkeypatch) -> None:
         if line.startswith("data: ")
     )
 
-    assert json.loads(data_line) == json.loads(api_response.model_dump_json())
+    # NOTE: the SSE endpoint is intentionally NOT wrapped in the APIResponse
+    # envelope (see docs/dev-docs/20260819-Yuki-ig-threads-public-crawler.md),
+    # so we compare against the wrapped GET response's inner `data` payload.
+    assert json.loads(data_line) == json.loads(api_response.data.model_dump_json())

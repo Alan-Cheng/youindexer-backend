@@ -41,6 +41,9 @@ API Response Envelope。
   不變。
 - 兩個平台都只做「讀取第一批公開內容」，無法捲動載入更多，回傳數量可能少於
   `limit`。
+- Alan 分支 merge 進來後，比照他的要求把 `alias`／`me`／`youtube`／`auth` 幾支
+  路由能包的都包上 `APIResponse`，2 支 SSE ＋ 1 支 204 端點刻意先不動，細節與
+  待討論項目見下方「補上 Alan 分支（YOUINDEXER-6 merge 後）的 envelope」一節。
 
 ### Testing
 
@@ -84,6 +87,37 @@ status code、直接回傳 `HealthResponse`，並未套用此包裝，維持既�
 （`test_youtube_search_maps_playwright_failure_to_bad_gateway`、
 `test_youtube_suggestions_maps_failure_to_bad_gateway`），改成斷言新格式。
 這不是 YouTube 功能邏輯的改動，純粹是回應格式統一後的斷言跟著更新。
+
+### 補上 Alan 分支（YOUINDEXER-6 merge 後）的 envelope（review 請留意）
+
+Alan merge 進來的 `app/api/v1/{alias,me,youtube,auth}.py` 這幾支路由原本沒有套用
+`APIResponse`，他要求比照辦理。這個 PR 已經把「可以直接改」的端點都補上了：
+
+- `alias.py`：`POST /aliases`（1/1）
+- `me.py`：`GET /me/search-history`（1/3）
+- `youtube.py`：`keyword-suggestions`、`search-metadata`、`POST search-jobs`、
+  `GET search-jobs/{task_id}`、`POST videos/{video_id}/index`、
+  `GET videos/{video_id}/index`、`subtitles/search`（7/8）
+- `auth.py`：`google/login`、`google/callback`、`refresh`、`GET /me`、
+  `auth/verify`（5/5）
+
+對應改動 `response_model=APIResponse[X]`、回傳值改成 `APIResponse.ok(...)`，並同步
+更新 `tests/alias/test_api.py`、`tests/api/test_me.py`、`tests/api/test_auth.py`、
+`tests/api/test_youtube.py` 裡對應斷言（`response.json()["data"]`／
+`response.data.xxx`）。
+
+**待處理（這次故意沒動，留給 review 討論）：**
+
+- `GET /me/search-history/events`、`GET /youtube/search-jobs/{task_id}/events`
+  （SSE）：兩支都是用 `text/event-stream` 直接串原始 JSON snapshot，套 envelope
+  等於改動前端已經在吃的 SSE payload 格式，屬於破壞性改動，這次先不動。
+- `DELETE /me/search-history/{task_id}`：回 204 No Content，HTTP 語意上不帶
+  body，套不上 envelope。
+- 附帶發現：`GET /youtube/search-jobs/{task_id}`（已包 envelope）跟它的 SSE 版本
+  `.../events`（未包）現在回傳的 body 形狀不一樣了——原本
+  `test_job_api_and_sse_snapshot_share_response_body` 這支測試斷言兩者「完全一致」，
+  已經改成只比對 envelope 內層的 `data`，但這代表 API 回應格式上兩者已經不對稱，
+  需要跟 Alan／前端確認 SSE 之後要不要也改格式，或是维持現狀、由前端各自處理。
 
 ## 資料來源與擷取方式
 
