@@ -75,8 +75,8 @@ API Response Envelope。
 `app/core/exception_handlers.py` 註冊了全域的 `HTTPException` 與
 `RequestValidationError` handler，因此任何路由（包含既有的 `/youtube/search`）
 主動 `raise HTTPException(...)` 或參數驗證失敗時，都會回傳同樣結構的錯誤內容，
-`success=false`、`errors` 帶有詳細訊息陣列。`/health` 目前是手動設定
-status code、直接回傳 `HealthResponse`，並未套用此包裝，維持既有行為不變。
+`success=false`、`errors` 帶有詳細訊息陣列。`/health` 也已套用此包裝；健康檢查
+失敗時維持 HTTP 503，且 envelope 的 `code` 同樣為 503。
 
 ### 對既有 YouTube API 的影響（review 時請留意）
 
@@ -94,7 +94,7 @@ Alan merge 進來的 `app/api/v1/{alias,me,youtube,auth}.py` 這幾支路由原�
 `APIResponse`，他要求比照辦理。這個 PR 已經把「可以直接改」的端點都補上了：
 
 - `alias.py`：`POST /aliases`（1/1）
-- `me.py`：`GET /me/search-history`（1/3）
+- `me.py`：`GET /me/search-history`、`DELETE /me/search-history/{task_id}`（2/3）
 - `youtube.py`：`keyword-suggestions`、`search-metadata`、`POST search-jobs`、
   `GET search-jobs/{task_id}`、`POST videos/{video_id}/index`、
   `GET videos/{video_id}/index`、`subtitles/search`（7/8）
@@ -106,13 +106,13 @@ Alan merge 進來的 `app/api/v1/{alias,me,youtube,auth}.py` 這幾支路由原�
 `tests/api/test_youtube.py` 裡對應斷言（`response.json()["data"]`／
 `response.data.xxx`）。
 
-**待處理（這次故意沒動，留給 review 討論）：**
+**刻意維持非 envelope 格式：**
 
 - `GET /me/search-history/events`、`GET /youtube/search-jobs/{task_id}/events`
   （SSE）：兩支都是用 `text/event-stream` 直接串原始 JSON snapshot，套 envelope
   等於改動前端已經在吃的 SSE payload 格式，屬於破壞性改動，這次先不動。
-- `DELETE /me/search-history/{task_id}`：回 204 No Content，HTTP 語意上不帶
-  body，套不上 envelope。
+- `DELETE /me/search-history/{task_id}`：已改為 HTTP 200，回傳成功 envelope，`data` 為
+  `null`；找不到項目時仍由全域 handler 回傳錯誤 envelope。
 - 附帶發現：`GET /youtube/search-jobs/{task_id}`（已包 envelope）跟它的 SSE 版本
   `.../events`（未包）現在回傳的 body 形狀不一樣了——原本
   `test_job_api_and_sse_snapshot_share_response_body` 這支測試斷言兩者「完全一致」，

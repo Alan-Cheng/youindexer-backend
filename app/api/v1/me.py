@@ -116,12 +116,14 @@ async def list_search_history(
     )
 
 
-@router.delete("/me/search-history/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/me/search-history/{task_id}", response_model=APIResponse[None]
+)
 async def delete_search_history_item(
     task_id: str,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
-) -> None:
+) -> APIResponse[None]:
     """Delete one search job belonging to the current user."""
     if not delete_user_search_job(
         session, user_id=current_user.id, task_id=task_id
@@ -130,6 +132,7 @@ async def delete_search_history_item(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="search history item not found",
         )
+    return APIResponse.ok(None, message="Search history item deleted")
 
 
 @router.get("/me/search-history/events")

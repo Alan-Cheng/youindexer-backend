@@ -161,7 +161,12 @@ def test_delete_search_history_item_is_scoped_to_current_user(db_session) -> Non
         f"/api/v1/me/search-history/{other_job.id}", headers=headers
     )
 
-    assert response.status_code == 204
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["code"] == 200
+    assert body["message"] == "Search history item deleted"
+    assert body["data"] is None
     assert other_response.status_code == 404
     assert db_session.get(KeywordSearchJob, user_job.id) is None
     assert db_session.get(KeywordSearchJob, other_job.id) is not None

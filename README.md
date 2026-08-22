@@ -159,17 +159,29 @@ Response 的 `videos` 以 YouTube video ID 為 key，每組包含 `status`、`me
 uv run alembic upgrade head
 ```
 
-當 FastAPI、PostgreSQL 與 Redis 都正常時，health API 會回傳 HTTP 200：
+建立 migration 時，檔案名稱使用「日期時間_版本_目的」格式，例如：
+`20260820_112730_0001_add_users_table_and_keyword_search_jobs.py`。
+
+當 FastAPI、PostgreSQL 與 Redis 都正常時，health API 會回傳 HTTP 200，並使用共用
+`APIResponse` envelope：
 
 ```json
 {
-  "status": "healthy",
-  "postgres": { "status": "up", "detail": null },
-  "redis": { "status": "up", "detail": null }
+  "success": true,
+  "code": 200,
+  "message": "OK",
+  "data": {
+    "status": "healthy",
+    "postgres": { "status": "up", "detail": null },
+    "redis": { "status": "up", "detail": null }
+  },
+  "errors": null,
+  "timestamp": "2026-08-22T00:00:00Z"
 }
 ```
 
-若 PostgreSQL 或 Redis 無法連線，health API 會回傳 HTTP 503，並將對應服務標記為 `down`。
+若 PostgreSQL 或 Redis 無法連線，health API 會回傳 HTTP 503，envelope 的 `code` 也會是
+`503`，並將對應服務標記為 `down`。
 
 ## Commit message 格式
 
