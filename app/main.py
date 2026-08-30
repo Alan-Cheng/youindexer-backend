@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from app.api.v1.alias import router as alias_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.health import router as health_router
+from app.api.v1.ingest import router as ingest_router
 from app.api.v1.instagram import router as instagram_router
 from app.api.v1.me import router as me_router
 from app.api.v1.threads import router as threads_router
@@ -50,6 +51,7 @@ register_exception_handlers(app)
 app.include_router(alias_router, prefix="/api/v1", tags=["alias"])
 app.include_router(auth_router, prefix="/api/v1", tags=["auth"])
 app.include_router(health_router, prefix="/api/v1", tags=["health"])
+app.include_router(ingest_router, prefix="/api/v1", tags=["ingest"])
 app.include_router(instagram_router, prefix="/api/v1", tags=["instagram"])
 app.include_router(me_router, prefix="/api/v1", tags=["me"])
 app.include_router(threads_router, prefix="/api/v1", tags=["threads"])
