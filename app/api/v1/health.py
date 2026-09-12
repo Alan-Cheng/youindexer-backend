@@ -7,6 +7,7 @@ from fastapi import APIRouter, Response, status
 from pydantic import BaseModel
 
 from app.config import settings
+from app.core.response import APIResponse
 
 router = APIRouter()
 
@@ -47,18 +48,23 @@ async def check_redis() -> ServiceHealth:
         await client.aclose()
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health(response: Response) -> HealthResponse:
+@router.get("/health", response_model=APIResponse[HealthResponse])
+async def health(response: Response) -> APIResponse[HealthResponse]:
     postgres_health, redis_health = await asyncio.gather(
         check_postgres(),
         check_redis(),
     )
     is_healthy = postgres_health.status == "up" and redis_health.status == "up"
+    response_code = status.HTTP_200_OK
     if not is_healthy:
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        response_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        response.status_code = response_code
 
-    return HealthResponse(
-        status="healthy" if is_healthy else "unhealthy",
-        postgres=postgres_health,
-        redis=redis_health,
+    return APIResponse.ok(
+        HealthResponse(
+            status="healthy" if is_healthy else "unhealthy",
+            postgres=postgres_health,
+            redis=redis_health,
+        ),
+        code=response_code,
     )
