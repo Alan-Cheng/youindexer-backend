@@ -64,7 +64,8 @@ def test_ingest_youtube_video_persists_and_requests_indexing(monkeypatch) -> Non
     url = "https://www.youtube.com/watch?v=abc123XYZ90"
     returned = ingest_youtube_video(fake_session, url)
 
-    assert returned is state
+    assert returned.metadata is result
+    assert returned.index_state is state
     assert save_calls == {
         "session": fake_session,
         "query": url,

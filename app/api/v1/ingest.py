@@ -13,9 +13,12 @@ from pydantic import BaseModel, Field
 from app.core.response import APIResponse
 from app.database.session import SessionLocal
 from app.ingest.dispatch import UnknownUrlSourceError, detect_url_source
-from app.ingest.youtube import UnrecognizedYouTubeUrlError, ingest_youtube_video
+from app.ingest.youtube import (
+    UnrecognizedYouTubeUrlError,
+    YouTubeIngestResult,
+    ingest_youtube_video,
+)
 from app.youtube import YouTubeVideoLookupError
-from app.youtube.repository import VideoIndexState
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -44,10 +47,14 @@ class IngestByUrlResponse(BaseModel):
     source: str
     video_id: str
     title: str
+    channel_name: str | None
+    thumbnail_url: str | None
+    published_text: str | None
+    view_count_text: str | None
     transcripts: list[TranscriptIndexStatusResponse]
 
 
-def _ingest_youtube(url: str) -> VideoIndexState:
+def _ingest_youtube(url: str) -> YouTubeIngestResult:
     with SessionLocal() as session:
         return ingest_youtube_video(session, url)
 
@@ -80,7 +87,7 @@ async def ingest_by_url(payload: IngestByUrlRequest) -> APIResponse[IngestByUrlR
 
     logger.info("ingesting url source=%s url=%r", source, url)
     try:
-        state = await asyncio.to_thread(_ingest_youtube, url)
+        ingested = await asyncio.to_thread(_ingest_youtube, url)
     except UnrecognizedYouTubeUrlError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -88,11 +95,17 @@ async def ingest_by_url(payload: IngestByUrlRequest) -> APIResponse[IngestByUrlR
     except YouTubeVideoLookupError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
+    metadata = ingested.metadata
+    state = ingested.index_state
     return APIResponse.ok(
         IngestByUrlResponse(
             source=source,
             video_id=state.youtube_video_id,
             title=state.title,
+            channel_name=metadata.channel_name,
+            thumbnail_url=metadata.thumbnail_url,
+            published_text=metadata.published_text,
+            view_count_text=metadata.view_count_text,
             transcripts=[
                 TranscriptIndexStatusResponse(**asdict(transcript))
                 for transcript in state.transcripts
