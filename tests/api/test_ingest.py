@@ -4,9 +4,10 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.v1.ingest import IngestByUrlRequest, ingest_by_url
-from app.ingest.youtube import UnrecognizedYouTubeUrlError
+from app.ingest.youtube import UnrecognizedYouTubeUrlError, YouTubeIngestResult
 from app.youtube import YouTubeVideoLookupError
 from app.youtube.repository import TranscriptState, VideoIndexState
+from app.youtube.search import YouTubeSearchResult
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +18,21 @@ def _run_thread_calls_inline(monkeypatch):
         return function(*args, **kwargs)
 
     monkeypatch.setattr("app.api.v1.ingest.asyncio.to_thread", immediate_to_thread)
+
+
+def sample_metadata() -> YouTubeSearchResult:
+    return YouTubeSearchResult(
+        video_id="abc123XYZ90",
+        title="測試影片標題",
+        url="https://www.youtube.com/watch?v=abc123XYZ90",
+        channel_name="測試頻道",
+        channel_url="https://www.youtube.com/@test",
+        thumbnail_url="https://i.ytimg.com/vi/abc123XYZ90/hqdefault.jpg",
+        duration="12:34",
+        published_text="2026-01-15",
+        view_count_text="12,345 次觀看",
+        description="測試說明",
+    )
 
 
 def sample_state() -> VideoIndexState:
@@ -37,9 +53,13 @@ def sample_state() -> VideoIndexState:
     )
 
 
+def sample_ingest_result() -> YouTubeIngestResult:
+    return YouTubeIngestResult(metadata=sample_metadata(), index_state=sample_state())
+
+
 def test_ingest_by_url_dispatches_youtube(monkeypatch) -> None:
-    state = sample_state()
-    monkeypatch.setattr("app.api.v1.ingest._ingest_youtube", lambda url: state)
+    ingested = sample_ingest_result()
+    monkeypatch.setattr("app.api.v1.ingest._ingest_youtube", lambda url: ingested)
 
     response = asyncio.run(
         ingest_by_url(IngestByUrlRequest(url="https://www.youtube.com/watch?v=abc123XYZ90"))
@@ -48,6 +68,10 @@ def test_ingest_by_url_dispatches_youtube(monkeypatch) -> None:
     assert response.data.source == "youtube"
     assert response.data.video_id == "abc123XYZ90"
     assert response.data.title == "測試影片標題"
+    assert response.data.channel_name == "測試頻道"
+    assert response.data.thumbnail_url == "https://i.ytimg.com/vi/abc123XYZ90/hqdefault.jpg"
+    assert response.data.published_text == "2026-01-15"
+    assert response.data.view_count_text == "12,345 次觀看"
     assert response.data.transcripts[0].language == "zh-TW"
 
 
